@@ -22,10 +22,19 @@ export function AdminPanel() {
   const [uploadMessage, setUploadMessage] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
+  async function securedFetch(input: RequestInfo | URL, init?: RequestInit) {
+    let response = await fetch(input, init);
+    if (response.status === 401) {
+      const refreshed = await fetch("/api/auth/refresh", { method: "POST" });
+      if (refreshed.ok) response = await fetch(input, init);
+    }
+    return response;
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const response = await fetch("/api/admin");
+      const response = await securedFetch("/api/admin");
       if (!response.ok) throw new Error("Não foi possível carregar o painel.");
       setData(await response.json());
       setError("");
@@ -40,7 +49,7 @@ export function AdminPanel() {
 
   async function remove(entity: Entity, id: number) {
     if (!window.confirm("Deseja realmente excluir este item?")) return;
-    await fetch(`/api/admin?entity=${entity}&id=${id}`, { method: "DELETE" });
+    await securedFetch(`/api/admin?entity=${entity}&id=${id}`, { method: "DELETE" });
     await load();
   }
 
@@ -48,7 +57,7 @@ export function AdminPanel() {
     event.preventDefault();
     if (!editing) return;
     const hasId = Boolean(editing.values.id);
-    const response = await fetch("/api/admin", { method: hasId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: editing.entity, ...editing.values }) });
+    const response = await securedFetch("/api/admin", { method: hasId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entity: editing.entity, ...editing.values }) });
     if (!response.ok) {
       const result = await response.json() as { error?: string };
       setError(result.error ?? "Não foi possível salvar.");
@@ -66,7 +75,7 @@ export function AdminPanel() {
     form.append("file", file);
     form.append("lessonId", uploadLesson);
     try {
-      const response = await fetch("/api/videos", { method: "POST", body: form });
+      const response = await securedFetch("/api/videos", { method: "POST", body: form });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Falha no upload.");
       setUploadMessage("Vídeo enviado e vinculado à aula com sucesso.");

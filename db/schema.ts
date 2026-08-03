@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const students = sqliteTable("students", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -37,4 +37,73 @@ export const lessons = sqliteTable("lessons", {
   videoKey: text("video_key"),
   videoName: text("video_name"),
   videoSize: integer("video_size"),
+});
+
+export const userAccounts = sqliteTable("user_accounts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  fullName: text("full_name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  passwordSalt: text("password_salt").notNull(),
+  role: text("role").notNull().default("student"),
+  status: text("status").notNull().default("active"),
+  level: text("level").notNull().default("Começando do zero"),
+  placementScore: integer("placement_score").notNull().default(0),
+  goal: text("goal"),
+  dailyMinutes: integer("daily_minutes").notNull().default(10),
+  tokenVersion: integer("token_version").notNull().default(1),
+  mustChangePassword: integer("must_change_password", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  lastLoginAt: text("last_login_at"),
+});
+
+export const authSessions = sqliteTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  refreshTokenHash: text("refresh_token_hash").notNull(),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+  revokedAt: text("revoked_at"),
+});
+
+export const loginAttempts = sqliteTable("login_attempts", {
+  identifier: text("identifier").primaryKey(),
+  failedCount: integer("failed_count").notNull().default(0),
+  lockedUntil: text("locked_until"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const placementAttempts = sqliteTable("placement_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  score: integer("score").notNull(),
+  totalQuestions: integer("total_questions").notNull(),
+  resultingLevel: text("resulting_level").notNull(),
+  answersJson: text("answers_json").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const lessonProgress = sqliteTable("lesson_progress", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  lessonId: integer("lesson_id"),
+  lessonSlug: text("lesson_slug").notNull(),
+  progressPercent: integer("progress_percent").notNull().default(0),
+  bestScore: integer("best_score").notNull().default(0),
+  attemptsCount: integer("attempts_count").notNull().default(0),
+  completedAt: text("completed_at"),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("lesson_progress_user_slug_unique").on(table.userId, table.lessonSlug)]);
+
+export const exerciseAttempts = sqliteTable("exercise_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  lessonSlug: text("lesson_slug").notNull(),
+  score: integer("score").notNull(),
+  total: integer("total").notNull(),
+  answersJson: text("answers_json"),
+  createdAt: text("created_at").notNull(),
 });

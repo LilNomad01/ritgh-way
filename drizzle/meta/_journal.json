@@ -8,6 +8,13 @@
       "when": 1785720788394,
       "tag": "0000_crazy_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785722423920,
+      "tag": "0001_charming_kabuki",
+      "breakpoints": true
     }
   ]
 }

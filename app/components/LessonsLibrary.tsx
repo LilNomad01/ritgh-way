@@ -36,7 +36,7 @@ export function LessonsLibrary({ onStartLesson }: { onStartLesson: () => void })
   const [selectedModule, setSelectedModule] = useState<number | null>(2);
 
   useEffect(() => {
-    fetch("/api/admin").then((response) => response.ok ? response.json() : Promise.reject()).then((result) => setData(result)).catch(() => undefined);
+    fetch("/api/content").then((response) => response.ok ? response.json() : Promise.reject()).then((result) => setData(result)).catch(() => undefined);
   }, []);
 
   const visibleModules = level === "Todos" ? data.modules : data.modules.filter((module) => module.level === level);

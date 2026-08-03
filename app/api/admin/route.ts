@@ -1,4 +1,5 @@
 import { getD1 } from "../../../db";
+import { assertSameOrigin, requireAdmin } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -75,8 +76,10 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const db = await ensureData();
     const [students, modules, sections, lessons] = await Promise.all([
       db.prepare("SELECT id, full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students ORDER BY id DESC").all(),
@@ -92,6 +95,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const payload = await request.json() as Record<string, unknown> & { entity?: Entity };
     const db = await ensureData();
     let result;
@@ -101,6 +107,8 @@ export async function POST(request: Request) {
       if (!name || !email) return Response.json({ error: "Nome e e-mail são obrigatórios." }, { status: 400 });
       result = await db.prepare("INSERT INTO students (full_name, email, level, placement_score, status, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET full_name = excluded.full_name, level = excluded.level, placement_score = excluded.placement_score, status = excluded.status")
         .bind(name, email, clean(payload.level) || "Básico", Number(payload.placementScore) || 0, clean(payload.status) || "Ativo", new Date().toISOString()).run();
+      await db.prepare("UPDATE user_accounts SET full_name = ?, level = ?, status = ?, updated_at = ? WHERE email = ? AND role = 'student'")
+        .bind(name, clean(payload.level) || "Básico", clean(payload.status) === "Pausado" ? "paused" : "active", new Date().toISOString(), email).run();
     } else if (payload.entity === "module") {
       result = await db.prepare("INSERT INTO course_modules (title, level, description, status, position) VALUES (?, ?, ?, ?, ?)")
         .bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
@@ -121,12 +129,21 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const payload = await request.json() as Record<string, unknown> & { entity?: Entity; id?: number };
     const db = await ensureData();
     const id = Number(payload.id);
     if (!id) return Response.json({ error: "ID inválido." }, { status: 400 });
     if (payload.entity === "student") {
-      await db.prepare("UPDATE students SET full_name = ?, email = ?, level = ?, status = ? WHERE id = ?").bind(clean(payload.fullName), clean(payload.email).toLowerCase(), clean(payload.level), clean(payload.status), id).run();
+      const existing = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
+      const email = clean(payload.email).toLowerCase();
+      await db.batch([
+        db.prepare("UPDATE students SET full_name = ?, email = ?, level = ?, status = ? WHERE id = ?").bind(clean(payload.fullName), email, clean(payload.level), clean(payload.status), id),
+        db.prepare("UPDATE user_accounts SET full_name = ?, email = ?, level = ?, status = ?, token_version = token_version + 1, updated_at = ? WHERE email = ? AND role = 'student'")
+          .bind(clean(payload.fullName), email, clean(payload.level), clean(payload.status) === "Pausado" ? "paused" : "active", new Date().toISOString(), existing?.email ?? email),
+      ]);
     } else if (payload.entity === "module") {
       await db.prepare("UPDATE course_modules SET title = ?, level = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "section") {
@@ -144,13 +161,29 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const url = new URL(request.url);
     const entity = url.searchParams.get("entity") as Entity | null;
     const id = Number(url.searchParams.get("id"));
     const db = await ensureData();
     const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons" };
     if (!entity || !tables[entity] || !id) return Response.json({ error: "Dados inválidos." }, { status: 400 });
-    await db.prepare(`DELETE FROM ${tables[entity]} WHERE id = ?`).bind(id).run();
+    if (entity === "student") {
+      const student = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
+      if (student) {
+        const account = await db.prepare("SELECT id FROM user_accounts WHERE email = ? AND role = 'student' LIMIT 1").bind(student.email).first<{ id: number }>();
+        const now = new Date().toISOString();
+        await db.batch([
+          db.prepare("DELETE FROM students WHERE id = ?").bind(id),
+          db.prepare("UPDATE user_accounts SET status = 'deleted', token_version = token_version + 1, updated_at = ? WHERE id = ?").bind(now, account?.id ?? 0),
+          db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, account?.id ?? 0),
+        ]);
+      }
+    } else {
+      await db.prepare(`DELETE FROM ${tables[entity]} WHERE id = ?`).bind(id).run();
+    }
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível excluir." }, { status: 500 });

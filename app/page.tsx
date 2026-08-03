@@ -5,8 +5,9 @@ import { AdminPanel } from "./components/AdminPanel";
 import { ExercisePlayer } from "./components/ExercisePlayer";
 import { LessonsLibrary } from "./components/LessonsLibrary";
 import { Onboarding } from "./components/Onboarding";
+import { PasswordChange } from "./components/PasswordChange";
 
-type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number };
+type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
 
 const navItems = [
   { label: "Início", icon: "⌂" },
@@ -63,14 +64,19 @@ export default function Home() {
   const [lessonOpen, setLessonOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [profile, setProfile] = useState<Profile>(demoProfile);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [passwordChangeOpen, setPasswordChangeOpen] = useState(false);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("rightway-theme");
-    const savedProfile = localStorage.getItem("rightway-profile-v3");
     if (savedTheme === "dark") setDark(true);
-    if (savedProfile) {
-      try { setProfile(JSON.parse(savedProfile)); setShowOnboarding(false); } catch { setShowOnboarding(true); }
-    }
+    fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error("anonymous");
+      const result = await response.json() as { profile: Profile };
+      setProfile(result.profile);
+      setShowOnboarding(false);
+      if (result.profile.role === "admin") setActive("Admin");
+    }).catch(() => setShowOnboarding(true)).finally(() => setCheckingSession(false));
   }, []);
 
   function toggleTheme() {
@@ -85,15 +91,17 @@ export default function Home() {
   function finishOnboarding(nextProfile: Profile) {
     setProfile(nextProfile);
     setShowOnboarding(false);
+    setActive(nextProfile.role === "admin" ? "Admin" : "Início");
+  }
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    setShowOnboarding(true);
     setActive("Início");
   }
 
-  function useDemo() {
-    localStorage.setItem("rightway-profile-v3", JSON.stringify(demoProfile));
-    finishOnboarding(demoProfile);
-  }
-
-  if (showOnboarding) return <Onboarding onComplete={finishOnboarding} onDemo={useDemo} />;
+  if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand.png" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
+  if (showOnboarding) return <Onboarding onComplete={finishOnboarding} />;
 
   const firstName = profile.fullName.split(" ")[0] || "Aluno";
   const initials = profile.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
@@ -102,21 +110,22 @@ export default function Home() {
     <main className={dark ? "app-shell dark" : "app-shell"}>
       <aside className="sidebar" aria-label="Navegação principal">
         <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div>
-        <nav className="side-nav"><p>SEU ESPAÇO</p>{navItems.map((item) => <button key={item.label} className={active === item.label ? "nav-item active" : "nav-item"} onClick={() => selectNav(item.label)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}<p className="nav-section">GESTÃO</p><button className={active === "Admin" ? "nav-item active admin-nav" : "nav-item admin-nav"} onClick={() => selectNav("Admin")}><span>▦</span>Painel admin</button></nav>
-        <div className="side-footer"><div className="plan-row"><span className="mini-avatar">{initials}</span><div><strong>{profile.fullName}</strong><small>Plano {profile.level}</small></div><button onClick={() => { localStorage.removeItem("rightway-profile-v3"); setShowOnboarding(true); }} aria-label="Sair e cadastrar novo usuário">↪</button></div></div>
+        <nav className="side-nav"><p>SEU ESPAÇO</p>{navItems.map((item) => <button key={item.label} className={active === item.label ? "nav-item active" : "nav-item"} onClick={() => selectNav(item.label)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}{profile.role === "admin" && <><p className="nav-section">GESTÃO SEGURA</p><button className={active === "Admin" ? "nav-item active admin-nav" : "nav-item admin-nav"} onClick={() => selectNav("Admin")}><span>▦</span>Painel admin</button></>}</nav>
+        <div className="side-footer"><div className="plan-row"><span className="mini-avatar">{initials}</span><div><strong>{profile.fullName}</strong><small>{profile.role === "admin" ? "Administrador raiz" : `Plano ${profile.level}`}</small></div><button onClick={logout} aria-label="Sair da conta">↪</button></div></div>
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div className="mobile-brand"><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><strong>RIGHT WAY</strong></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><button className="streak-pill" aria-label="Sequência de cinco dias"><span>🔥</span><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">{dark ? "☀" : "☾"}</button><button className="avatar" onClick={() => selectNav("Admin")} aria-label="Abrir painel administrativo">{initials}<span /></button></div></header>
+        <header className="topbar"><div className="mobile-brand"><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><strong>RIGHT WAY</strong></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><button className="streak-pill" aria-label="Sequência de cinco dias"><span>🔥</span><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema">{dark ? "☀" : "☾"}</button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
 
         {active === "Início" && <Dashboard onLesson={() => setLessonOpen(true)} onNavigate={selectNav} />}
         {(active === "Aulas" || active === "Jornada") && <LessonsLibrary onStartLesson={() => setLessonOpen(true)} />}
         {active === "Conquistas" && <Achievements />}
-        {active === "Admin" && <AdminPanel />}
+        {active === "Admin" && profile.role === "admin" && <><div className="admin-security-banner"><span>⌾</span><div><strong>Sessão administrativa protegida</strong><small>JWT de curta duração, cookie HTTP-only e renovação segura.</small></div>{profile.mustChangePassword && <button onClick={() => setPasswordChangeOpen(true)}>Trocar senha inicial</button>}</div><AdminPanel /></>}
       </section>
 
       <nav className="mobile-nav" aria-label="Navegação móvel">{navItems.filter((item) => item.label !== "Jornada").map((item) => <button key={item.label} className={active === item.label ? "active" : ""} onClick={() => selectNav(item.label)}><span>{item.icon}</span><small>{item.label}</small></button>)}</nav>
       {lessonOpen && <ExercisePlayer onClose={() => setLessonOpen(false)} />}
+      {passwordChangeOpen && <PasswordChange onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
     </main>
   );
 }

@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react";
 
 type Exercise = {
-  type: "choice" | "listening" | "order" | "fill";
+  type: "choice" | "listening" | "correction" | "fill" | "writing";
   category: string;
   title: string;
   prompt: string;
   options?: string[];
-  words?: string[];
   correct: string;
+  accepted?: string[];
   explanation: string;
   speech?: string;
 };
@@ -35,13 +35,13 @@ const exercises: Exercise[] = [
     explanation: "“Half past six” significa seis e meia: 6:30.",
   },
   {
-    type: "order",
+    type: "correction",
     category: "ESTRUTURA · DAILY ROUTINE",
-    title: "Put the sentence in order.",
-    prompt: "Monte uma pergunta natural sobre frequência.",
-    words: ["practice", "How", "English?", "you", "often", "do"],
-    correct: "How often do you practice English?",
-    explanation: "Em perguntas de frequência, usamos “How often + do + sujeito + verbo”.",
+    title: "Find the mistake.",
+    prompt: "Na frase “I've been working here since three years”, qual trecho precisa mudar?",
+    options: ["I've been working", "here since", "three years"],
+    correct: "here since",
+    explanation: "Usamos “for” com duração. A forma correta é: “I've been working here for three years.”",
   },
   {
     type: "fill",
@@ -52,13 +52,13 @@ const exercises: Exercise[] = [
     explanation: "Use “since” com o ponto exato em que a ação começou.",
   },
   {
-    type: "choice",
+    type: "writing",
     category: "GRAMMAR · CONDITIONALS",
-    title: "Choose the correct continuation.",
-    prompt: "If I had more time...",
-    options: ["I will travel more.", "I would travel more.", "I traveled more."],
-    correct: "I would travel more.",
-    explanation: "No second conditional usamos “if + past” e “would + verbo”.",
+    title: "Write it naturally.",
+    prompt: "Traduza: “Eu gostaria de ter mais tempo.”",
+    correct: "I wish I had more time.",
+    accepted: ["I wish I had more time", "I would like to have more time", "I'd like to have more time"],
+    explanation: "“I wish I had...” expressa um desejo sobre uma situação atual que você gostaria que fosse diferente.",
   },
 ];
 
@@ -72,12 +72,12 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
   const [confirmed, setConfirmed] = useState(false);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [responses, setResponses] = useState<string[]>([]);
   const exercise = exercises[current];
-  const orderedWords = selected ? selected.split("|") : [];
-  const orderedAnswer = orderedWords.join(" ");
-  const answerValue = exercise.type === "order" ? orderedAnswer : selected;
-  const isCorrect = normalize(answerValue) === normalize(exercise.correct);
-  const canConfirm = exercise.type === "order" ? orderedWords.length === exercise.words?.length : Boolean(selected.trim());
+  const normalizedSelection = normalize(selected).replace(/[.!?]$/g, "");
+  const acceptedAnswers = [exercise.correct, ...(exercise.accepted ?? [])].map((answer) => normalize(answer).replace(/[.!?]$/g, ""));
+  const isCorrect = acceptedAnswers.includes(normalizedSelection);
+  const canConfirm = Boolean(selected.trim());
   const progress = useMemo(() => ((finished ? exercises.length : current + 1) / exercises.length) * 100, [current, finished]);
 
   function speak() {
@@ -93,24 +93,17 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
     if (!confirmed) setSelected(value);
   }
 
-  function addWord(word: string) {
-    if (!confirmed && !orderedWords.includes(word)) setSelected([...orderedWords, word].join("|"));
-  }
-
-  function removeWord(index: number) {
-    if (!confirmed) setSelected(orderedWords.filter((_, itemIndex) => itemIndex !== index).join("|"));
-  }
-
   function primaryAction() {
     if (!confirmed) {
-      const answerValue = exercise.type === "order" ? orderedAnswer : selected;
-      const correct = normalize(answerValue) === normalize(exercise.correct);
+      const correct = isCorrect;
       setConfirmed(true);
+      setResponses((values) => [...values, selected]);
       if (correct) setScore((value) => value + 1);
       return;
     }
     if (current === exercises.length - 1) {
       setFinished(true);
+      void fetch("/api/progress", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lessonSlug: "coffee-shop-practice", score, total: exercises.length, answers: responses }) });
       return;
     }
     setCurrent((value) => value + 1);
@@ -124,6 +117,7 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
     setConfirmed(false);
     setScore(0);
     setFinished(false);
+    setResponses([]);
   }
 
   return (
@@ -154,7 +148,7 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
 
               {exercise.type === "listening" && <button className="listen-button" onClick={speak}><span>▶</span><div><strong>Ouvir áudio</strong><small>Toque para reproduzir em inglês</small></div><i>0:06</i></button>}
 
-              {(exercise.type === "choice" || exercise.type === "listening") && (
+              {(exercise.type === "choice" || exercise.type === "listening" || exercise.type === "correction") && (
                 <div className="answers">
                   {exercise.options?.map((option, index) => {
                     const isSelected = selected === option;
@@ -171,13 +165,7 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
               )}
 
               {exercise.type === "fill" && <div className="fill-answer"><span>I've lived here</span><input autoFocus value={selected} disabled={confirmed} onChange={(event) => setSelected(event.target.value)} placeholder="digite aqui" /><span>2022.</span></div>}
-
-              {exercise.type === "order" && (
-                <div className="order-exercise">
-                  <div className="order-dropzone">{orderedWords.length ? orderedWords.map((word, index) => <button disabled={confirmed} onClick={() => removeWord(index)} key={`${word}-${index}`}>{word}</button>) : <span>Toque nas palavras para montar a frase</span>}</div>
-                  <div className="word-bank">{exercise.words?.map((word) => <button key={word} disabled={confirmed || orderedWords.includes(word)} onClick={() => addWord(word)}>{word}</button>)}</div>
-                </div>
-              )}
+              {exercise.type === "writing" && <div className="writing-answer"><label>Sua resposta em inglês</label><textarea autoFocus value={selected} disabled={confirmed} onChange={(event) => setSelected(event.target.value)} placeholder="Escreva a frase completa..." /><small>Pense na intenção da frase, não traduza palavra por palavra.</small></div>}
 
               {confirmed && <div className={isCorrect ? "feedback success" : "feedback error"}><strong>{isCorrect ? "Mandou bem!" : "Quase lá!"}</strong><p>{exercise.explanation}</p>{!isCorrect && <small>Resposta correta: <b>{exercise.correct}</b></small>}</div>}
             </div>

@@ -1,10 +1,14 @@
 import { env } from "cloudflare:workers";
 import { getD1 } from "../../../db";
+import { assertSameOrigin, requireAdmin, requireAuth } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const form = await request.formData();
     const file = form.get("file");
     const lessonId = Number(form.get("lessonId"));
@@ -22,6 +26,8 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const auth = await requireAuth(request);
+  if (auth instanceof Response) return auth;
   const key = new URL(request.url).searchParams.get("key");
   if (!key || !key.startsWith("lessons/")) return new Response("Arquivo inválido", { status: 400 });
   const object = await (env.VIDEOS as R2Bucket).get(key);
