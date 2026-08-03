@@ -6,7 +6,7 @@ import { ExercisePlayer } from "./components/ExercisePlayer";
 import { LessonsLibrary } from "./components/LessonsLibrary";
 import { Onboarding } from "./components/Onboarding";
 
-type Profile = { fullName: string; email: string; level: string; placementScore: number };
+type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number };
 
 const navItems = [
   { label: "Início", icon: "⌂" },
@@ -66,7 +66,7 @@ export default function Home() {
 
   useEffect(() => {
     const savedTheme = localStorage.getItem("rightway-theme");
-    const savedProfile = localStorage.getItem("rightway-profile");
+    const savedProfile = localStorage.getItem("rightway-profile-v3");
     if (savedTheme === "dark") setDark(true);
     if (savedProfile) {
       try { setProfile(JSON.parse(savedProfile)); setShowOnboarding(false); } catch { setShowOnboarding(true); }
@@ -89,7 +89,7 @@ export default function Home() {
   }
 
   function useDemo() {
-    localStorage.setItem("rightway-profile", JSON.stringify(demoProfile));
+    localStorage.setItem("rightway-profile-v3", JSON.stringify(demoProfile));
     finishOnboarding(demoProfile);
   }
 
@@ -103,7 +103,7 @@ export default function Home() {
       <aside className="sidebar" aria-label="Navegação principal">
         <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div>
         <nav className="side-nav"><p>SEU ESPAÇO</p>{navItems.map((item) => <button key={item.label} className={active === item.label ? "nav-item active" : "nav-item"} onClick={() => selectNav(item.label)}><span aria-hidden="true">{item.icon}</span>{item.label}</button>)}<p className="nav-section">GESTÃO</p><button className={active === "Admin" ? "nav-item active admin-nav" : "nav-item admin-nav"} onClick={() => selectNav("Admin")}><span>▦</span>Painel admin</button></nav>
-        <div className="side-footer"><div className="plan-row"><span className="mini-avatar">{initials}</span><div><strong>{profile.fullName}</strong><small>Plano {profile.level}</small></div><button onClick={() => { localStorage.removeItem("rightway-profile"); setShowOnboarding(true); }} aria-label="Sair e cadastrar novo usuário">↪</button></div></div>
+        <div className="side-footer"><div className="plan-row"><span className="mini-avatar">{initials}</span><div><strong>{profile.fullName}</strong><small>Plano {profile.level}</small></div><button onClick={() => { localStorage.removeItem("rightway-profile-v3"); setShowOnboarding(true); }} aria-label="Sair e cadastrar novo usuário">↪</button></div></div>
       </aside>
 
       <section className="workspace">
