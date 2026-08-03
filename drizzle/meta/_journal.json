@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785720788394,
+      "tag": "0000_crazy_mister_fear",
+      "breakpoints": true
+    }
+  ]
 }
