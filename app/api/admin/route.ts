@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 type Entity = "student" | "module" | "section" | "lesson";
 type ReorderEntity = "section" | "lesson";
 
-async function ensureData() {
+export async function ensureData() {
   const db = getD1();
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS students (
@@ -46,6 +46,19 @@ async function ensureData() {
     )`),
   ]);
 
+  const artworkColumns = [
+    ["course_modules", "cover_key", "TEXT"], ["course_modules", "cover_fit", "TEXT NOT NULL DEFAULT 'cover'"], ["course_modules", "cover_zoom", "INTEGER NOT NULL DEFAULT 100"], ["course_modules", "cover_overlay", "INTEGER NOT NULL DEFAULT 24"], ["course_modules", "cover_position_x", "INTEGER NOT NULL DEFAULT 50"], ["course_modules", "cover_position_y", "INTEGER NOT NULL DEFAULT 50"],
+    ["course_sections", "cover_key", "TEXT"], ["course_sections", "cover_fit", "TEXT NOT NULL DEFAULT 'cover'"], ["course_sections", "cover_zoom", "INTEGER NOT NULL DEFAULT 100"], ["course_sections", "cover_overlay", "INTEGER NOT NULL DEFAULT 24"], ["course_sections", "cover_position_x", "INTEGER NOT NULL DEFAULT 50"], ["course_sections", "cover_position_y", "INTEGER NOT NULL DEFAULT 50"],
+    ["lessons", "thumbnail_key", "TEXT"], ["lessons", "thumbnail_fit", "TEXT NOT NULL DEFAULT 'cover'"], ["lessons", "thumbnail_zoom", "INTEGER NOT NULL DEFAULT 100"], ["lessons", "thumbnail_overlay", "INTEGER NOT NULL DEFAULT 20"], ["lessons", "thumbnail_position_x", "INTEGER NOT NULL DEFAULT 50"], ["lessons", "thumbnail_position_y", "INTEGER NOT NULL DEFAULT 50"],
+  ] as const;
+  for (const table of ["course_modules", "course_sections", "lessons"] as const) {
+    const info = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+    const existing = new Set(info.results.map((column) => column.name));
+    for (const [columnTable, name, declaration] of artworkColumns) {
+      if (columnTable === table && !existing.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`).run();
+    }
+  }
+
   const moduleCount = await db.prepare("SELECT COUNT(*) AS total FROM course_modules").first<{ total: number }>();
   if (!moduleCount?.total) {
     await db.batch([
@@ -84,9 +97,9 @@ export async function GET(request: Request) {
     const db = await ensureData();
     const [students, modules, sections, lessons] = await Promise.all([
       db.prepare("SELECT id, full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students ORDER BY id DESC").all(),
-      db.prepare("SELECT id, title, level, description, status, position FROM course_modules ORDER BY position, id").all(),
-      db.prepare("SELECT id, module_id AS moduleId, title, position FROM course_sections ORDER BY module_id, position, id").all(),
-      db.prepare("SELECT id, section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize FROM lessons ORDER BY section_id, position, id").all(),
+      db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id").all(),
+      db.prepare("SELECT id, module_id AS moduleId, title, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id").all(),
+      db.prepare("SELECT id, section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id").all(),
     ]);
     return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results });
   } catch (error) {
@@ -165,7 +178,7 @@ export async function PATCH(request: Request) {
     if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
-    const payload = await request.json() as { action?: string; entity?: ReorderEntity; orderedIds?: number[]; id?: number };
+    const payload = await request.json() as { action?: string; entity?: ReorderEntity | "module"; orderedIds?: number[]; id?: number; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
     const db = await ensureData();
 
     if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
@@ -182,6 +195,21 @@ export async function PATCH(request: Request) {
       const result = await db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, 'Rascunho', ?)")
         .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1).run();
       return Response.json({ ok: true, id: result.meta.last_row_id });
+    }
+
+    if (payload.action === "updateArtwork" && payload.entity && payload.id) {
+      const configuration = [
+        ["module", "course_modules", "cover"],
+        ["section", "course_sections", "cover"],
+        ["lesson", "lessons", "thumbnail"],
+      ].find(([entity]) => entity === payload.entity);
+      if (!configuration) return Response.json({ error: "Tipo de capa inválido." }, { status: 400 });
+      const [, table, prefix] = configuration;
+      const fit = ["cover", "contain", "fill"].includes(payload.imageFit ?? "") ? payload.imageFit : "cover";
+      const clamp = (value: number | undefined, min: number, max: number) => Math.min(max, Math.max(min, Number(value) || min));
+      await db.prepare(`UPDATE ${table} SET ${prefix}_fit = ?, ${prefix}_zoom = ?, ${prefix}_overlay = ?, ${prefix}_position_x = ?, ${prefix}_position_y = ? WHERE id = ?`)
+        .bind(fit, clamp(payload.imageZoom, 100, 180), clamp(payload.imageOverlay, 0, 75), clamp(payload.imagePositionX, 0, 100), clamp(payload.imagePositionY, 0, 100), Number(payload.id)).run();
+      return Response.json({ ok: true });
     }
 
     return Response.json({ error: "Ação inválida." }, { status: 400 });

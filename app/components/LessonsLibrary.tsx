@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MaterialIcon } from "./MaterialIcon";
 
-type Module = { id: number; title: string; level: string; description: string; status: string; position: number };
-type Section = { id: number; moduleId: number; title: string; position: number };
-type Lesson = { id: number; sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number; videoKey?: string };
+type Artwork = { imageKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
+type Module = Artwork & { id: number; title: string; level: string; description: string; status: string; position: number };
+type Section = Artwork & { id: number; moduleId: number; title: string; position: number };
+type Lesson = Artwork & { id: number; sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number; videoKey?: string };
 type Progress = { lessonSlug: string; progressPercent: number; completedAt?: string };
 
 const fallback = {
@@ -43,20 +45,24 @@ function ProgressBar({ value }: { value: number }) {
   return <div className="rail-progress-bar"><span style={{ width: `${Math.min(100, Math.max(0, value))}%` }} /></div>;
 }
 
+function LessonArtwork({ lesson }: { lesson: Lesson }) {
+  return <div className="lesson-thumb">
+    {lesson.imageKey ? <img src={`/api/media?key=${encodeURIComponent(lesson.imageKey)}`} alt="" style={{ objectFit: lesson.imageFit ?? "cover", objectPosition: `${lesson.imagePositionX ?? 50}% ${lesson.imagePositionY ?? 50}%`, transform: `scale(${(lesson.imageZoom ?? 100) / 100})` }} /> : <span><MaterialIcon name={lesson.videoKey ? "play_arrow" : "school"} /></span>}
+    <i style={{ opacity: (lesson.imageOverlay ?? 18) / 100 }} />
+  </div>;
+}
+
 function LessonCard({ lesson, index, progress, onStartLesson }: { lesson: Lesson; index: number; progress: number; onStartLesson: () => void }) {
   const status = progress >= 100 ? "Concluída" : progress > 0 ? "Em andamento" : "Não iniciada";
   return (
     <article className={`student-lesson-card ${status === "Concluída" ? "complete" : progress > 0 ? "active" : ""}`}>
-      <div className="lesson-thumb">
-        <span>{lesson.videoKey ? "▶" : "RW"}</span>
-        {status === "Concluída" && <b>✓</b>}
-      </div>
+      <div className="lesson-card-art"><LessonArtwork lesson={lesson} />{status === "Concluída" && <b><MaterialIcon name="check" /></b>}</div>
       <div className="student-lesson-copy">
         <small>Aula {String(index + 1).padStart(2, "0")} · {lesson.duration}</small>
         <h4>{lesson.title}</h4>
         <p>{lesson.lessonType}</p>
         <ProgressBar value={progress} />
-        <div><span>{status}</span><button onClick={onStartLesson}>Abrir aula →</button></div>
+        <div><span>{status}</span><button onClick={onStartLesson}>Abrir aula <MaterialIcon name="arrow_forward" /></button></div>
       </div>
     </article>
   );
@@ -69,8 +75,8 @@ function CourseSectionRail({ section, lessons, progress, onStartLesson }: { sect
       <div className="section-rail-head">
         <div><h3>{section.title}</h3><p>{lessons.length} aulas</p></div>
         <div className="rail-controls">
-          <button onClick={() => railRef.current?.scrollBy({ left: -320, behavior: "smooth" })} aria-label="Aulas anteriores">‹</button>
-          <button onClick={() => railRef.current?.scrollBy({ left: 320, behavior: "smooth" })} aria-label="Próximas aulas">›</button>
+          <button onClick={() => railRef.current?.scrollBy({ left: -320, behavior: "smooth" })} aria-label="Aulas anteriores"><MaterialIcon name="chevron_left" /></button>
+          <button onClick={() => railRef.current?.scrollBy({ left: 320, behavior: "smooth" })} aria-label="Próximas aulas"><MaterialIcon name="chevron_right" /></button>
         </div>
       </div>
       <div className="student-lesson-rail" ref={railRef}>

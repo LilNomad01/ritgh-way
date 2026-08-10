@@ -17,6 +17,12 @@ export const courseModules = sqliteTable("course_modules", {
   description: text("description").notNull().default(""),
   status: text("status").notNull().default("Publicado"),
   position: integer("position").notNull().default(0),
+  imageKey: text("cover_key"),
+  imageFit: text("cover_fit").notNull().default("cover"),
+  imageZoom: integer("cover_zoom").notNull().default(100),
+  imageOverlay: integer("cover_overlay").notNull().default(24),
+  imagePositionX: integer("cover_position_x").notNull().default(50),
+  imagePositionY: integer("cover_position_y").notNull().default(50),
 });
 
 export const courseSections = sqliteTable("course_sections", {
@@ -24,6 +30,12 @@ export const courseSections = sqliteTable("course_sections", {
   moduleId: integer("module_id").notNull(),
   title: text("title").notNull(),
   position: integer("position").notNull().default(0),
+  imageKey: text("cover_key"),
+  imageFit: text("cover_fit").notNull().default("cover"),
+  imageZoom: integer("cover_zoom").notNull().default(100),
+  imageOverlay: integer("cover_overlay").notNull().default(24),
+  imagePositionX: integer("cover_position_x").notNull().default(50),
+  imagePositionY: integer("cover_position_y").notNull().default(50),
 });
 
 export const lessons = sqliteTable("lessons", {
@@ -37,6 +49,12 @@ export const lessons = sqliteTable("lessons", {
   videoKey: text("video_key"),
   videoName: text("video_name"),
   videoSize: integer("video_size"),
+  imageKey: text("thumbnail_key"),
+  imageFit: text("thumbnail_fit").notNull().default("cover"),
+  imageZoom: integer("thumbnail_zoom").notNull().default(100),
+  imageOverlay: integer("thumbnail_overlay").notNull().default(20),
+  imagePositionX: integer("thumbnail_position_x").notNull().default(50),
+  imagePositionY: integer("thumbnail_position_y").notNull().default(50),
 });
 
 export const userAccounts = sqliteTable("user_accounts", {

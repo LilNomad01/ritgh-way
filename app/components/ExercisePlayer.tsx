@@ -164,7 +164,7 @@ export function ExercisePlayer({ onClose }: { onClose: () => void }) {
                 </div>
               )}
 
-              {exercise.type === "fill" && <div className="fill-answer"><span>I've lived here</span><input autoFocus value={selected} disabled={confirmed} onChange={(event) => setSelected(event.target.value)} placeholder="digite aqui" /><span>2022.</span></div>}
+              {exercise.type === "fill" && <div className="fill-answer"><span>I&apos;ve lived here</span><input autoFocus value={selected} disabled={confirmed} onChange={(event) => setSelected(event.target.value)} placeholder="digite aqui" /><span>2022.</span></div>}
               {exercise.type === "writing" && <div className="writing-answer"><label>Sua resposta em inglês</label><textarea autoFocus value={selected} disabled={confirmed} onChange={(event) => setSelected(event.target.value)} placeholder="Escreva a frase completa..." /><small>Pense na intenção da frase, não traduza palavra por palavra.</small></div>}
 
               {confirmed && <div className={isCorrect ? "feedback success" : "feedback error"}><strong>{isCorrect ? "Mandou bem!" : "Quase lá!"}</strong><p>{exercise.explanation}</p>{!isCorrect && <small>Resposta correta: <b>{exercise.correct}</b></small>}</div>}

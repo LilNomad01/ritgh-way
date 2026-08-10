@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { MaterialIcon } from "./MaterialIcon";
 
 type Student = { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string };
-type Module = { id: number; title: string; level: string; description: string; status: string; position: number };
-type Section = { id: number; moduleId: number; title: string; position: number };
-type Lesson = { id: number; sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number; videoKey?: string; videoName?: string; videoSize?: number };
+type Artwork = { imageKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
+type Module = Artwork & { id: number; title: string; level: string; description: string; status: string; position: number };
+type Section = Artwork & { id: number; moduleId: number; title: string; position: number };
+type Lesson = Artwork & { id: number; sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number; videoKey?: string; videoName?: string; videoSize?: number };
 type Data = { students: Student[]; modules: Module[]; sections: Section[]; lessons: Lesson[] };
 type Entity = "student" | "module" | "section" | "lesson";
 
@@ -26,6 +28,23 @@ function statusClass(status: string) {
   return status === "Publicado" ? "status-live" : "status-draft";
 }
 
+async function securedFetch(input: RequestInfo | URL, init?: RequestInit) {
+  let response = await fetch(input, init);
+  if (response.status === 401) {
+    const refreshed = await fetch("/api/auth/refresh", { method: "POST" });
+    if (refreshed.ok) response = await fetch(input, init);
+  }
+  return response;
+}
+
+function ArtworkPreview({ item, className = "", icon = "school" }: { item: Artwork; className?: string; icon?: string }) {
+  const imageUrl = item.imageKey ? `/api/media?key=${encodeURIComponent(item.imageKey)}` : "";
+  return <div className={`artwork-preview ${className}`.trim()}>
+    {imageUrl ? <img src={imageUrl} alt="" style={{ objectFit: item.imageFit ?? "cover", objectPosition: `${item.imagePositionX ?? 50}% ${item.imagePositionY ?? 50}%`, transform: `scale(${(item.imageZoom ?? 100) / 100})` }} /> : <div className="artwork-fallback"><MaterialIcon name={icon} /><span>RIGHT WAY</span></div>}
+    <span className="artwork-overlay" style={{ opacity: (item.imageOverlay ?? 22) / 100 }} />
+  </div>;
+}
+
 export function AdminPanel() {
   const [tab, setTab] = useState("overview");
   const [data, setData] = useState<Data>(emptyData);
@@ -38,16 +57,12 @@ export function AdminPanel() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [selectedModuleId, setSelectedModuleId] = useState<number | null>(null);
+  const [artworkEditor, setArtworkEditor] = useState<{ entity: "module" | "section" | "lesson"; item: (Module | Section | Lesson) & { title: string } } | null>(null);
+  const [artworkDevice, setArtworkDevice] = useState<"desktop" | "mobile">("desktop");
+  const [artworkUploading, setArtworkUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  async function securedFetch(input: RequestInfo | URL, init?: RequestInit) {
-    let response = await fetch(input, init);
-    if (response.status === 401) {
-      const refreshed = await fetch("/api/auth/refresh", { method: "POST" });
-      if (refreshed.ok) response = await fetch(input, init);
-    }
-    return response;
-  }
+  const artworkFileRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -63,7 +78,20 @@ export function AdminPanel() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    securedFetch("/api/admin").then(async (response) => {
+      if (!response.ok) throw new Error("Não foi possível carregar o painel.");
+      return response.json() as Promise<Data>;
+    }).then((result) => {
+      if (!cancelled) { setData(result); setError(""); }
+    }).catch((loadError) => {
+      if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Erro ao carregar.");
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   async function remove(entity: Entity, id: number) {
     if (!window.confirm("Deseja realmente excluir este item?")) return;
@@ -128,6 +156,38 @@ export function AdminPanel() {
     await load();
   }
 
+  async function uploadArtwork(file?: File) {
+    if (!file || !artworkEditor) return;
+    setArtworkUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("entity", artworkEditor.entity);
+      form.append("id", String(artworkEditor.item.id));
+      const response = await securedFetch("/api/media", { method: "POST", body: form });
+      const result = await readResponse(response) as { key?: string; error?: string };
+      if (!response.ok || !result.key) throw new Error(result.error ?? "Não foi possível enviar a capa.");
+      setArtworkEditor((current) => current ? { ...current, item: { ...current.item, imageKey: result.key } } : null);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Não foi possível enviar a capa.");
+    } finally {
+      setArtworkUploading(false);
+    }
+  }
+
+  async function saveArtwork() {
+    if (!artworkEditor) return;
+    const response = await securedFetch("/api/admin", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "updateArtwork", entity: artworkEditor.entity, id: artworkEditor.item.id, imageFit: artworkEditor.item.imageFit ?? "cover", imageZoom: artworkEditor.item.imageZoom ?? 100, imageOverlay: artworkEditor.item.imageOverlay ?? 22, imagePositionX: artworkEditor.item.imagePositionX ?? 50, imagePositionY: artworkEditor.item.imagePositionY ?? 50 }) });
+    if (!response.ok) { setError((await readResponse(response)).error ?? "Não foi possível salvar a capa."); return; }
+    setArtworkEditor(null);
+    await load();
+  }
+
+  function openArtworkEditor(entity: "module" | "section" | "lesson", item: (Module | Section | Lesson) & { title: string }) {
+    setArtworkDevice("desktop");
+    setArtworkEditor({ entity, item });
+  }
+
   async function upload(file?: File) {
     if (!file || !uploadLesson) { setUploadMessage("Selecione a aula e o arquivo de vídeo."); return; }
     setUploading(true);
@@ -169,65 +229,81 @@ export function AdminPanel() {
 
   return (
     <div className="admin-page page-view">
-      <div className="admin-header"><div><span className="eyebrow">RIGHT WAY CONTROL CENTER</span><h1>Painel administrativo</h1><p>Gerencie alunos, trilhas, aulas e vídeos em um só lugar.</p></div><button className="primary-button" onClick={() => setEditing({ entity: "student", values: { fullName: "", email: "", level: "Básico", status: "Ativo", placementScore: 0 } })}>+ Novo aluno</button></div>
-      <nav className="admin-tabs">{[["overview", "Visão geral"], ["students", "Alunos"], ["content", "Conteúdo"], ["videos", "Vídeos"]].map(([key, label]) => <button className={tab === key ? "active" : ""} onClick={() => setTab(key)} key={key}>{label}</button>)}</nav>
+      <div className="admin-header"><div><span className="eyebrow">RIGHT WAY CONTROL CENTER</span><h1>Painel administrativo</h1><p>Gerencie alunos, trilhas, aulas e vídeos em um só lugar.</p></div><button className="primary-button icon-button" onClick={() => setEditing({ entity: "student", values: { fullName: "", email: "", level: "Básico", status: "Ativo", placementScore: 0 } })}><MaterialIcon name="person_add" />Novo aluno</button></div>
+      <nav className="admin-tabs">{[["overview", "Visão geral", "dashboard"], ["students", "Alunos", "group"], ["content", "Conteúdo", "video_library"], ["videos", "Vídeos", "smart_display"]].map(([key, label, icon]) => <button className={tab === key ? "active" : ""} onClick={() => { setTab(key); if (key !== "content") setSelectedModuleId(null); }} key={key}><MaterialIcon name={icon} filled={tab === key} />{label}</button>)}</nav>
       {error && <div className="admin-alert">{error}<button onClick={load}>Tentar novamente</button></div>}
       {loading ? <div className="admin-loading">Carregando dados...</div> : <>
         {tab === "overview" && <div className="admin-overview"><div className="admin-metrics"><article><span>ALUNOS ATIVOS</span><strong>{data.students.filter((student) => student.status === "Ativo").length}</strong><small>Perfis cadastrados</small></article><article><span>AULAS PUBLICADAS</span><strong>{publishedLessons}</strong><small>Em {data.modules.length} módulos</small></article><article><span>VÍDEOS ENVIADOS</span><strong>{data.lessons.filter((lesson) => lesson.videoKey).length}</strong><small>Armazenamento seguro</small></article><article><span>MÉDIA DE NÍVEL</span><strong>{averageScore}</strong><small>Pontos no teste</small></article></div><div className="admin-grid"><section><div className="panel-title"><h2>Alunos recentes</h2><button onClick={() => setTab("students")}>Ver todos →</button></div>{data.students.slice(0, 5).map((student) => <div className="recent-row" key={student.id}><span>{student.fullName.split(" ").map((part) => part[0]).slice(0,2).join("")}</span><div><strong>{student.fullName}</strong><small>{student.email}</small></div><b>{student.level}</b></div>)}{!data.students.length && <p className="empty-state">Os novos cadastros aparecerão aqui.</p>}</section><section><div className="panel-title"><h2>Conteúdo</h2><button onClick={() => setTab("content")}>Gerenciar →</button></div>{data.modules.map((module) => <div className="content-health" key={module.id}><span>{module.position}</span><div><strong>{module.title}</strong><small>{module.level} · {data.sections.filter((section) => section.moduleId === module.id).length} seções</small></div><b>{module.status}</b></div>)}</section></div></div>}
 
         {tab === "students" && <section className="admin-table-panel"><div className="panel-title"><div><h2>Alunos</h2><p>{data.students.length} cadastros na plataforma</p></div><button className="outline-button" onClick={() => setEditing({ entity: "student", values: { fullName: "", email: "", level: "Básico", status: "Ativo", placementScore: 0 } })}>+ Adicionar aluno</button></div><div className="admin-table-wrap"><table><thead><tr><th>Aluno</th><th>Nível</th><th>Teste</th><th>Status</th><th>Cadastro</th><th /></tr></thead><tbody>{data.students.map((student) => <tr key={student.id}><td><div className="student-cell"><span>{student.fullName.slice(0,2).toUpperCase()}</span><div><strong>{student.fullName}</strong><small>{student.email}</small></div></div></td><td><b className="level-tag">{student.level}</b></td><td>{student.placementScore}/8</td><td><b className={student.status === "Ativo" ? "status-live" : "status-draft"}>{student.status}</b></td><td>{new Date(student.createdAt).toLocaleDateString("pt-BR")}</td><td><div className="row-actions"><button onClick={() => setEditing({ entity: "student", values: { ...student } })}>Editar</button><button className="delete" onClick={() => remove("student", student.id)}>Excluir</button></div></td></tr>)}</tbody></table>{!data.students.length && <p className="empty-state">Nenhum aluno cadastrado ainda.</p>}</div></section>}
 
-        {tab === "content" && <section className="course-admin">
-          <div className="course-admin-head">
-            <div><span className="eyebrow">CONTEÚDO DO CURSO</span><h2>Estrutura das aulas</h2><p>Organize o curso como o aluno enxerga: nível, seção e aula.</p></div>
-            <div><button className="outline-button" onClick={() => { window.location.href = "/"; }}>Pré-visualizar como aluno</button><button className="primary-button" onClick={() => setEditing({ entity: "lesson", values: newLessonValues() })}>+ Nova aula</button></div>
-          </div>
-          <div className="course-admin-levels">
-            {orderedModules.map((module, moduleIndex) => {
-              const sections = data.sections.filter((section) => section.moduleId === module.id).sort((left, right) => left.position - right.position || left.id - right.id);
-              const lessons = moduleLessons(data, module.id);
-              return <article className="admin-level-block" key={module.id}>
-                <header>
-                  <span>{String(moduleIndex + 1).padStart(2, "0")}</span>
-                  <div><small>{module.level}</small><h3>{module.title}</h3><p>{module.description}</p></div>
-                  <aside><b>{lessons.length} aulas</b><strong className={statusClass(module.status)}>{module.status}</strong></aside>
-                  <div className="level-actions"><button onClick={() => setEditing({ entity: "lesson", values: newLessonValues(module.id) })}>+ Adicionar aula</button><button onClick={() => setEditing({ entity: "module", values: { ...module } })}>Editar nível</button><button onClick={() => setEditing({ entity: "section", values: { title: "", moduleId: module.id, position: sections.length + 1 } })}>+ Seção</button></div>
-                </header>
-                {sections.map((section) => {
-                  const sectionLessons = data.lessons.filter((lesson) => lesson.sectionId === section.id).sort((left, right) => left.position - right.position || left.id - right.id);
-                  return <div className="admin-section-rail" key={section.id}>
-                    <div className="admin-section-title"><div><h4>{section.title}</h4><p>{sectionLessons.length} aulas nesta seção</p></div><button onClick={() => setEditing({ entity: "lesson", values: newLessonValues(module.id, section.id) })}>+ Aula</button></div>
-                    <div className="admin-lesson-rail">
-                      {sectionLessons.map((lesson, lessonIndex) => <article className="admin-lesson-card" key={lesson.id}>
-                        <div className="admin-lesson-thumb"><span>{lesson.videoKey ? "▶" : "RW"}</span></div>
-                        <small>Aula {String(lessonIndex + 1).padStart(2, "0")} · {lesson.duration}</small>
-                        <h5>{lesson.title}</h5>
-                        <div className="admin-card-meta"><b className={statusClass(lesson.status)}>{lesson.status}</b><span>{lesson.videoKey ? "Vídeo vinculado" : "Sem vídeo"}</span></div>
-                        <div className="admin-card-footer">
-                          <div className="order-buttons"><button disabled={lessonIndex === 0} onClick={() => reorderLessons(section.id, lesson.id, -1)}>↑</button><button disabled={lessonIndex === sectionLessons.length - 1} onClick={() => reorderLessons(section.id, lesson.id, 1)}>↓</button></div>
-                          <button className="lesson-menu-trigger" onClick={() => setOpenMenu(openMenu === lesson.id ? null : lesson.id)}>•••</button>
-                        </div>
-                        {openMenu === lesson.id && <div className="lesson-menu">
-                          <button onClick={() => { setEditing({ entity: "lesson", values: { ...lesson } }); setOpenMenu(null); }}>Editar</button>
-                          <button onClick={() => { setPreviewing(lesson); setOpenMenu(null); }}>Visualizar</button>
-                          <button onClick={() => toggleLessonStatus(lesson)}>{lesson.status === "Publicado" ? "Despublicar" : "Publicar"}</button>
-                          <button onClick={() => duplicateLesson(lesson.id)}>Duplicar</button>
-                          <button className="delete" onClick={() => { setOpenMenu(null); remove("lesson", lesson.id); }}>Excluir</button>
-                        </div>}
-                      </article>)}
-                      <button className="admin-add-card" onClick={() => setEditing({ entity: "lesson", values: newLessonValues(module.id, section.id) })}>+<span>Adicionar aula</span></button>
-                    </div>
-                  </div>;
-                })}
-              </article>;
-            })}
-          </div>
+        {tab === "content" && <section className="course-admin visual-course-admin">
+          {!selectedModuleId ? <>
+            <div className="course-admin-head">
+              <div><span className="eyebrow">CONTEÚDO DO CURSO</span><h2>Biblioteca de módulos</h2><p>Veja toda a plataforma de uma vez e entre em um módulo para editar seções, aulas e capas.</p></div>
+              <div><button className="outline-button icon-button" onClick={() => { window.location.href = "/"; }}><MaterialIcon name="visibility" />Ver como aluno</button><button className="primary-button icon-button" onClick={() => setEditing({ entity: "module", values: { title: "", level: "Básico", description: "", status: "Rascunho", position: orderedModules.length + 1 } })}><MaterialIcon name="add" />Novo módulo</button></div>
+            </div>
+            <div className="course-admin-summary"><div><MaterialIcon name="library_books" /><span><strong>{orderedModules.length}</strong><small>Módulos</small></span></div><div><MaterialIcon name="view_quilt" /><span><strong>{data.sections.length}</strong><small>Seções</small></span></div><div><MaterialIcon name="smart_display" /><span><strong>{data.lessons.length}</strong><small>Aulas</small></span></div><div><MaterialIcon name="public" /><span><strong>{publishedLessons}</strong><small>Publicadas</small></span></div></div>
+            <div className="module-visual-grid">
+              {orderedModules.map((module, moduleIndex) => {
+                const sections = data.sections.filter((section) => section.moduleId === module.id);
+                const lessons = moduleLessons(data, module.id);
+                return <article className="module-visual-card" key={module.id}>
+                  <ArtworkPreview item={module} className="module-cover" icon={moduleIndex === 0 ? "forum" : moduleIndex === 1 ? "travel_explore" : "psychology"} />
+                  <div className="module-card-top"><span>{String(moduleIndex + 1).padStart(2, "0")}</span><b className={statusClass(module.status)}>{module.status}</b></div>
+                  <div className="module-card-copy"><small>{module.level}</small><h3>{module.title}</h3><p>{module.description}</p><div><span><MaterialIcon name="view_quilt" />{sections.length} seções</span><span><MaterialIcon name="play_lesson" />{lessons.length} aulas</span></div></div>
+                  <div className="module-card-actions"><button onClick={() => openArtworkEditor("module", module)} aria-label={`Editar capa de ${module.title}`}><MaterialIcon name="image" />Capa</button><button className="open-module" onClick={() => setSelectedModuleId(module.id)}>Gerenciar<MaterialIcon name="arrow_forward" /></button></div>
+                </article>;
+              })}
+              <button className="module-create-card" onClick={() => setEditing({ entity: "module", values: { title: "", level: "Básico", description: "", status: "Rascunho", position: orderedModules.length + 1 } })}><span><MaterialIcon name="add" /></span><strong>Criar novo módulo</strong><small>Adicione um nível ou uma nova trilha.</small></button>
+            </div>
+          </> : (() => {
+            const currentModule = data.modules.find((item) => item.id === selectedModuleId);
+            if (!currentModule) return null;
+            const sections = data.sections.filter((section) => section.moduleId === currentModule.id).sort((left, right) => left.position - right.position || left.id - right.id);
+            const lessons = moduleLessons(data, currentModule.id);
+            return <div className="module-detail-view">
+              <button className="module-back-button" onClick={() => setSelectedModuleId(null)}><MaterialIcon name="arrow_back" />Voltar para módulos</button>
+              <header className="module-detail-hero">
+                <ArtworkPreview item={currentModule} className="module-detail-cover" icon="school" />
+                <div className="module-detail-copy"><span className="eyebrow">{currentModule.level} · MÓDULO {String(currentModule.position).padStart(2, "0")}</span><h2>{currentModule.title}</h2><p>{currentModule.description}</p><div><b className={statusClass(currentModule.status)}>{currentModule.status}</b><span><MaterialIcon name="view_quilt" />{sections.length} seções</span><span><MaterialIcon name="play_lesson" />{lessons.length} aulas</span></div></div>
+                <div className="module-detail-actions"><button onClick={() => openArtworkEditor("module", currentModule)}><MaterialIcon name="image" />Editar capa</button><button onClick={() => setEditing({ entity: "module", values: { ...currentModule } })}><MaterialIcon name="edit" />Editar módulo</button><button className="primary-button" onClick={() => setEditing({ entity: "section", values: { title: "", moduleId: currentModule.id, position: sections.length + 1 } })}><MaterialIcon name="add" />Nova seção</button></div>
+              </header>
+              <div className="module-structure-head"><div><span className="eyebrow">ESTRUTURA DO MÓDULO</span><h3>Seções e aulas</h3></div><button className="outline-button icon-button" onClick={() => setEditing({ entity: "lesson", values: newLessonValues(currentModule.id) })}><MaterialIcon name="add" />Nova aula</button></div>
+              <div className="section-manager-list">{sections.map((section, sectionIndex) => {
+                const sectionLessons = data.lessons.filter((lesson) => lesson.sectionId === section.id).sort((left, right) => left.position - right.position || left.id - right.id);
+                return <article className="section-manager-card" key={section.id}>
+                  <header><ArtworkPreview item={section} className="section-cover" icon="collections_bookmark" /><div><small>SEÇÃO {String(sectionIndex + 1).padStart(2, "0")}</small><h4>{section.title}</h4><p>{sectionLessons.length} aulas organizadas nesta seção</p></div><div className="section-actions"><button onClick={() => openArtworkEditor("section", section)} aria-label="Editar capa da seção"><MaterialIcon name="image" /></button><button onClick={() => setEditing({ entity: "section", values: { ...section } })} aria-label="Editar seção"><MaterialIcon name="edit" /></button><button className="add-lesson" onClick={() => setEditing({ entity: "lesson", values: newLessonValues(currentModule.id, section.id) })}><MaterialIcon name="add" />Aula</button></div></header>
+                  <div className="admin-lesson-rail">
+                    {sectionLessons.map((lesson, lessonIndex) => <article className="admin-lesson-card" key={lesson.id}>
+                      <ArtworkPreview item={lesson} className="admin-lesson-thumb" icon={lesson.videoKey ? "play_arrow" : "school"} />
+                      <div className="lesson-card-number"><small>AULA {String(lessonIndex + 1).padStart(2, "0")}</small><span>{lesson.duration}</span></div>
+                      <h5>{lesson.title}</h5><p>{lesson.lessonType}</p>
+                      <div className="admin-card-meta"><b className={statusClass(lesson.status)}>{lesson.status}</b><span><MaterialIcon name={lesson.videoKey ? "check_circle" : "videocam_off"} />{lesson.videoKey ? "Vídeo pronto" : "Sem vídeo"}</span></div>
+                      <div className="admin-card-footer"><div className="order-buttons"><button disabled={lessonIndex === 0} onClick={() => reorderLessons(section.id, lesson.id, -1)} aria-label="Mover aula para a esquerda"><MaterialIcon name="arrow_back" /></button><button disabled={lessonIndex === sectionLessons.length - 1} onClick={() => reorderLessons(section.id, lesson.id, 1)} aria-label="Mover aula para a direita"><MaterialIcon name="arrow_forward" /></button></div><button className="lesson-menu-trigger" onClick={() => setOpenMenu(openMenu === lesson.id ? null : lesson.id)} aria-label="Mais ações"><MaterialIcon name="more_horiz" /></button></div>
+                      {openMenu === lesson.id && <div className="lesson-menu"><button onClick={() => { setEditing({ entity: "lesson", values: { ...lesson } }); setOpenMenu(null); }}><MaterialIcon name="edit" />Editar aula</button><button onClick={() => { openArtworkEditor("lesson", lesson); setOpenMenu(null); }}><MaterialIcon name="image" />Editar thumbnail</button><button onClick={() => { setPreviewing(lesson); setOpenMenu(null); }}><MaterialIcon name="visibility" />Visualizar</button><button onClick={() => toggleLessonStatus(lesson)}><MaterialIcon name={lesson.status === "Publicado" ? "visibility_off" : "publish"} />{lesson.status === "Publicado" ? "Despublicar" : "Publicar"}</button><button onClick={() => duplicateLesson(lesson.id)}><MaterialIcon name="content_copy" />Duplicar</button><button className="delete" onClick={() => { setOpenMenu(null); remove("lesson", lesson.id); }}><MaterialIcon name="delete" />Excluir</button></div>}
+                    </article>)}
+                    <button className="admin-add-card" onClick={() => setEditing({ entity: "lesson", values: newLessonValues(currentModule.id, section.id) })}><MaterialIcon name="add" /><span>Adicionar aula</span><small>Crie o próximo conteúdo desta seção</small></button>
+                  </div>
+                </article>;
+              })}{!sections.length && <button className="empty-section-card" onClick={() => setEditing({ entity: "section", values: { title: "", moduleId: currentModule.id, position: 1 } })}><MaterialIcon name="add_box" /><strong>Crie a primeira seção</strong><span>Organize as aulas deste módulo em blocos claros.</span></button>}</div>
+            </div>;
+          })()}
         </section>}
 
         {tab === "videos" && <div className="video-manager"><section className="upload-panel"><span className="eyebrow">BIBLIOTECA DE VÍDEOS</span><h2>Enviar nova videoaula</h2><p>O arquivo vai para o armazenamento de vídeos, e o banco salva apenas o vínculo com a aula. Arquivos grandes são enviados em partes para evitar limite de payload.</p><label>Aula<select value={uploadLesson} onChange={(event) => setUploadLesson(event.target.value)}><option value="">Selecione uma aula</option>{data.lessons.map((lesson) => <option value={lesson.id} key={lesson.id}>{lesson.title}</option>)}</select></label><button className="upload-drop" disabled={uploading} onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); upload(event.dataTransfer.files[0]); }}><span>↑</span><strong>{uploading ? `Enviando vídeo... ${uploadProgress}%` : "Arraste o vídeo aqui ou clique para selecionar"}</strong><small>MP4, MOV ou WebM · upload em partes</small>{uploading && <div className="upload-progress"><span style={{ width: `${uploadProgress}%` }} /></div>}</button><input ref={fileRef} hidden type="file" accept="video/*" onChange={(event) => upload(event.target.files?.[0])} />{uploadMessage && <p className={uploadMessage.includes("sucesso") ? "upload-message" : "upload-message error"}>{uploadMessage}</p>}</section><section className="video-library"><div className="panel-title"><div><h2>Vídeos das aulas</h2><p>{data.lessons.filter((lesson) => lesson.videoKey).length} arquivos enviados</p></div></div>{data.lessons.filter((lesson) => lesson.videoKey).map((lesson) => <article key={lesson.id}><video controls preload="metadata" src={`/api/videos?key=${encodeURIComponent(lesson.videoKey ?? "")}`} /><div><strong>{lesson.title}</strong><small>{lesson.videoName} · {fileSizeLabel(lesson.videoSize)}</small></div><span>Publicado</span></article>)}{!data.lessons.some((lesson) => lesson.videoKey) && <div className="video-empty"><span>▶</span><strong>Nenhum vídeo enviado</strong><p>Selecione uma aula ao lado para fazer o primeiro upload.</p></div>}{selectedVideoLesson?.videoKey && <p className="selected-video-note">A aula selecionada já possui um vídeo. Um novo upload substituirá o vínculo atual.</p>}</section></div>}
       </>}
 
-      {previewing && <div className="admin-editor-backdrop"><div className="admin-editor lesson-preview-modal"><div className="editor-head"><div><span className="eyebrow">PRÉ-VISUALIZAÇÃO</span><h2>{previewing.title}</h2></div><button type="button" onClick={() => setPreviewing(null)}>×</button></div><div className="preview-video-box">{previewing.videoKey ? <video controls src={`/api/videos?key=${encodeURIComponent(previewing.videoKey)}`} /> : <span>Vídeo ainda não enviado</span>}</div><p>{previewing.lessonType} · {previewing.duration}</p><button className="primary-button" onClick={() => setPreviewing(null)}>Fechar prévia</button></div></div>}
+      {previewing && <div className="admin-editor-backdrop"><div className="admin-editor lesson-preview-modal"><div className="editor-head"><div><span className="eyebrow">PRÉ-VISUALIZAÇÃO</span><h2>{previewing.title}</h2></div><button type="button" onClick={() => setPreviewing(null)}><MaterialIcon name="close" /></button></div><div className="preview-video-box">{previewing.videoKey ? <video controls src={`/api/videos?key=${encodeURIComponent(previewing.videoKey)}`} /> : <span>Vídeo ainda não enviado</span>}</div><p>{previewing.lessonType} · {previewing.duration}</p><button className="primary-button" onClick={() => setPreviewing(null)}>Fechar prévia</button></div></div>}
+      {artworkEditor && <div className="admin-editor-backdrop"><div className="admin-editor artwork-editor">
+        <div className="editor-head"><div><span className="eyebrow">EDITOR VISUAL</span><h2>Capa de {artworkEditor.item.title}</h2></div><button type="button" onClick={() => setArtworkEditor(null)}><MaterialIcon name="close" /></button></div>
+        <div className="artwork-device-tabs"><button className={artworkDevice === "desktop" ? "active" : ""} onClick={() => setArtworkDevice("desktop")}><MaterialIcon name="desktop_windows" />Desktop</button><button className={artworkDevice === "mobile" ? "active" : ""} onClick={() => setArtworkDevice("mobile")}><MaterialIcon name="smartphone" />Mobile</button></div>
+        <ArtworkPreview item={artworkEditor.item} className={`artwork-editor-preview ${artworkDevice}`} icon={artworkEditor.entity === "lesson" ? "play_arrow" : "school"} />
+        <button className="artwork-upload-button" disabled={artworkUploading} onClick={() => artworkFileRef.current?.click()}><MaterialIcon name="upload" />{artworkUploading ? "Enviando imagem..." : artworkEditor.item.imageKey ? "Trocar imagem" : "Enviar imagem de capa"}</button>
+        <input ref={artworkFileRef} hidden type="file" accept="image/*" onChange={(event) => uploadArtwork(event.target.files?.[0])} />
+        <div className="artwork-controls"><label>Modo de exibição<select value={artworkEditor.item.imageFit ?? "cover"} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageFit: event.target.value as Artwork["imageFit"] } })}><option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option></select></label><label>Zoom <span>{artworkEditor.item.imageZoom ?? 100}%</span><input type="range" min="100" max="180" value={artworkEditor.item.imageZoom ?? 100} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageZoom: Number(event.target.value) } })} /></label><label>Overlay <span>{artworkEditor.item.imageOverlay ?? 22}%</span><input type="range" min="0" max="75" value={artworkEditor.item.imageOverlay ?? 22} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageOverlay: Number(event.target.value) } })} /></label><div className="form-row"><label>Posição horizontal <span>{artworkEditor.item.imagePositionX ?? 50}%</span><input type="range" min="0" max="100" value={artworkEditor.item.imagePositionX ?? 50} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imagePositionX: Number(event.target.value) } })} /></label><label>Posição vertical <span>{artworkEditor.item.imagePositionY ?? 50}%</span><input type="range" min="0" max="100" value={artworkEditor.item.imagePositionY ?? 50} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imagePositionY: Number(event.target.value) } })} /></label></div></div>
+        <div className="editor-actions"><button type="button" onClick={() => setArtworkEditor(null)}>Cancelar</button><button type="button" onClick={saveArtwork}>Salvar aparência</button></div>
+      </div></div>}
       {editing && <div className="admin-editor-backdrop"><form className="admin-editor" onSubmit={save}><div className="editor-head"><div><span className="eyebrow">{editing.values.id ? "EDITAR" : "NOVO ITEM"}</span><h2>{editing.entity === "student" ? "Aluno" : editing.entity === "module" ? "Módulo" : editing.entity === "section" ? "Seção" : "Aula"}</h2></div><button type="button" onClick={() => setEditing(null)}>×</button></div>{editing.entity === "student" && <><label>Nome completo<input required value={String(editing.values.fullName ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, fullName: event.target.value } })} /></label><label>E-mail<input required type="email" value={String(editing.values.email ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, email: event.target.value } })} /></label><div className="form-row"><label>Nível<select value={String(editing.values.level)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, level: event.target.value } })}><option>Começando do zero</option><option>Básico</option><option>Intermediário</option><option>Avançado</option></select></label><label>Status<select value={String(editing.values.status)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, status: event.target.value } })}><option>Ativo</option><option>Pausado</option></select></label></div></>}{editing.entity === "module" && <><label>Título<input required value={String(editing.values.title ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, title: event.target.value } })} /></label><label>Descrição<textarea value={String(editing.values.description ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, description: event.target.value } })} /></label><div className="form-row"><label>Nível<select value={String(editing.values.level)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, level: event.target.value } })}><option>Básico</option><option>Intermediário</option><option>Avançado</option></select></label><label>Status<select value={String(editing.values.status)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, status: event.target.value } })}><option>Rascunho</option><option>Publicado</option></select></label></div></>}{editing.entity === "section" && <><label>Título<input required value={String(editing.values.title ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, title: event.target.value } })} /></label><label>Módulo<select value={String(editing.values.moduleId)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, moduleId: Number(event.target.value) } })}>{data.modules.map((module) => <option value={module.id} key={module.id}>{module.title}</option>)}</select></label></>}{editing.entity === "lesson" && <><label>Título<input required value={String(editing.values.title ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, title: event.target.value } })} /></label><label>Seção<select value={String(editing.values.sectionId)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, sectionId: Number(event.target.value) } })}>{data.sections.map((section) => <option value={section.id} key={section.id}>{section.title}</option>)}</select></label><div className="form-row"><label>Duração<input value={String(editing.values.duration ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, duration: event.target.value } })} /></label><label>Status<select value={String(editing.values.status)} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, status: event.target.value } })}><option>Rascunho</option><option>Publicado</option></select></label></div><label>Tipo de aula<input value={String(editing.values.lessonType ?? "")} onChange={(event) => setEditing({ ...editing, values: { ...editing.values, lessonType: event.target.value } })} /></label></>}<div className="editor-actions"><button type="button" onClick={() => setEditing(null)}>Cancelar</button><button type="submit">Salvar alterações</button></div></form></div>}
     </div>
   );

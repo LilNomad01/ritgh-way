@@ -15,6 +15,13 @@
       "when": 1785722423920,
       "tag": "0001_charming_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786375023241,
+      "tag": "0002_unusual_dreadnoughts",
+      "breakpoints": true
     }
   ]
 }
