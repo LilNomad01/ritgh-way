@@ -31,8 +31,8 @@ const dailyGoals = [
   { minutes: 20, label: "Intenso", note: "Para quem quer acelerar" },
 ];
 
-export function Onboarding({ onComplete }: { onComplete: (profile: Profile) => void }) {
-  const [step, setStep] = useState<Step>("home");
+export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (profile: Profile) => void; initialStep?: Step }) {
+  const [step, setStep] = useState<Step>(initialStep);
   const [form, setForm] = useState({ fullName: "", email: "" });
   const [password, setPassword] = useState("");
   const [goal, setGoal] = useState("");

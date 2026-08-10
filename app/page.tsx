@@ -58,7 +58,7 @@ function Achievements() {
   return <div className="achievements-page page-view"><div className="page-hero achievements-hero"><div><span className="eyebrow">SUAS CONQUISTAS</span><h1>Cada passo merece ser celebrado.</h1><p>3 de 12 medalhas conquistadas · Continue avançando.</p></div><div className="trophy">★<span>3</span></div></div><div className="achievement-grid">{items.map((item) => <article className={item.earned ? "earned" : "locked"} key={item.title}><span>{item.icon}</span><div><h3>{item.title}</h3><p>{item.text}</p></div><b>{item.earned ? "Conquistada" : "Bloqueada"}</b></article>)}</div></div>;
 }
 
-export default function Home() {
+export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
   const [dark, setDark] = useState(false);
   const [active, setActive] = useState("Início");
   const [lessonOpen, setLessonOpen] = useState(false);
@@ -75,9 +75,9 @@ export default function Home() {
       const result = await response.json() as { profile: Profile };
       setProfile(result.profile);
       setShowOnboarding(false);
-      if (result.profile.role === "admin") setActive("Admin");
+      setActive(result.profile.role === "admin" && adminEntry ? "Admin" : result.profile.role === "admin" ? "Admin" : "Início");
     }).catch(() => setShowOnboarding(true)).finally(() => setCheckingSession(false));
-  }, []);
+  }, [adminEntry]);
 
   function toggleTheme() {
     setDark((value) => { localStorage.setItem("rightway-theme", value ? "light" : "dark"); return !value; });
@@ -101,7 +101,7 @@ export default function Home() {
   }
 
   if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand.png" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
-  if (showOnboarding) return <Onboarding onComplete={finishOnboarding} />;
+  if (showOnboarding) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry ? "login" : "home"} />;
 
   const firstName = profile.fullName.split(" ")[0] || "Aluno";
   const initials = profile.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
@@ -128,4 +128,8 @@ export default function Home() {
       {passwordChangeOpen && <PasswordChange onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
     </main>
   );
+}
+
+export default function Home() {
+  return <RightWayApp />;
 }

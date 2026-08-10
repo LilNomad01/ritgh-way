@@ -6,7 +6,7 @@ const ACCESS_COOKIE = "rw_access";
 const REFRESH_COOKIE = "rw_refresh";
 const ACCESS_TTL_SECONDS = 15 * 60;
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
-const PASSWORD_ITERATIONS = 210_000;
+const PASSWORD_ITERATIONS = 100_000;
 
 type RuntimeSecrets = {
   AUTH_JWT_SECRET?: string;
