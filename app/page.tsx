@@ -75,7 +75,7 @@ export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
       const result = await response.json() as { profile: Profile };
       setProfile(result.profile);
       setShowOnboarding(false);
-      setActive(result.profile.role === "admin" && adminEntry ? "Admin" : result.profile.role === "admin" ? "Admin" : "Início");
+      setActive(result.profile.role === "admin" && adminEntry ? "Admin" : "Início");
     }).catch(() => setShowOnboarding(true)).finally(() => setCheckingSession(false));
   }, [adminEntry]);
 

@@ -4,6 +4,7 @@ import { assertSameOrigin, requireAdmin } from "../../lib/auth";
 export const dynamic = "force-dynamic";
 
 type Entity = "student" | "module" | "section" | "lesson";
+type ReorderEntity = "section" | "lesson";
 
 async function ensureData() {
   const db = getD1();
@@ -156,6 +157,36 @@ export async function PUT(request: Request) {
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível atualizar." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
+    const payload = await request.json() as { action?: string; entity?: ReorderEntity; orderedIds?: number[]; id?: number };
+    const db = await ensureData();
+
+    if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
+      const table = payload.entity === "lesson" ? "lessons" : "course_sections";
+      const statements = payload.orderedIds.map((id, index) => db.prepare(`UPDATE ${table} SET position = ? WHERE id = ?`).bind(index + 1, Number(id)));
+      await db.batch(statements);
+      return Response.json({ ok: true });
+    }
+
+    if (payload.action === "duplicateLesson") {
+      const lesson = await db.prepare("SELECT section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number }>();
+      if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+      const nextPosition = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM lessons WHERE section_id = ?").bind(lesson.sectionId).first<{ nextPosition: number }>();
+      const result = await db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, 'Rascunho', ?)")
+        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1).run();
+      return Response.json({ ok: true, id: result.meta.last_row_id });
+    }
+
+    return Response.json({ error: "Ação inválida." }, { status: 400 });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível atualizar a ordem." }, { status: 500 });
   }
 }
 
