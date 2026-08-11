@@ -398,6 +398,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .artwork-editor-preview { height: 265px; border-radius: 16px; }
 .artwork-editor-preview.mobile { width: min(260px,100%); height: 320px; margin: 0 auto; }
 .artwork-upload-button { width: 100%; height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 16px; border: 1px dashed #aebbd0; border-radius: 11px; color: var(--blue); background: var(--canvas); font-size: 9px; font-weight: 850; cursor: pointer; }
+.artwork-upload-button:disabled { cursor: wait; opacity: .72; }
+.artwork-upload-hint { display: flex; align-items: flex-start; gap: 7px; margin: -7px 0 16px; color: #71809b; font-size: 9px; line-height: 1.45; }
+.artwork-upload-hint .material-symbols-rounded { flex: 0 0 auto; margin-top: 1px; color: var(--blue); font-size: 15px; }
 .artwork-controls { display: grid; gap: 12px; }
 .artwork-controls label { margin: 0; }
 .artwork-controls label > span { float: right; color: var(--blue); font-size: 9px; }

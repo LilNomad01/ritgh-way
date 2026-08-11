@@ -4,14 +4,47 @@ import { assertSameOrigin, requireAdmin, requireAuth } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+type UploadedPart = { partNumber: number; etag: string };
+type MultipartUpload = {
+  uploadId: string;
+  uploadPart: (partNumber: number, value: ReadableStream | ArrayBuffer | Blob) => Promise<UploadedPart>;
+  complete: (parts: UploadedPart[]) => Promise<R2Object>;
+  abort: () => Promise<void>;
+};
+type ArtworkEntity = "module" | "section" | "lesson";
+
+const MAX_IMAGE_SIZE = 12 * 1024 * 1024;
+const CHUNK_SIZE = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 
 function safeName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
 }
 
+function artworkConfiguration(entity: string) {
+  if (entity === "module") return { entity: entity as ArtworkEntity, table: "course_modules", column: "cover_key" };
+  if (entity === "section") return { entity: entity as ArtworkEntity, table: "course_sections", column: "cover_key" };
+  if (entity === "lesson") return { entity: entity as ArtworkEntity, table: "lessons", column: "thumbnail_key" };
+  return null;
+}
+
 function storage() {
-  return env.VIDEOS as R2Bucket;
+  return env.VIDEOS as R2Bucket & {
+    createMultipartUpload?: (key: string, options?: R2PutOptions) => Promise<MultipartUpload>;
+    resumeMultipartUpload?: (key: string, uploadId: string) => MultipartUpload;
+  };
+}
+
+async function replaceArtwork(entity: ArtworkEntity, id: number, key: string) {
+  const configuration = artworkConfiguration(entity);
+  if (!configuration) throw new Error("Tipo de capa inválido.");
+  const db = getD1();
+  const previous = await db.prepare(`SELECT ${configuration.column} AS imageKey FROM ${configuration.table} WHERE id = ? LIMIT 1`).bind(id).first<{ imageKey?: string }>();
+  if (!previous) throw new Error("Conteúdo não encontrado.");
+  await db.prepare(`UPDATE ${configuration.table} SET ${configuration.column} = ? WHERE id = ?`).bind(key, id).run();
+  if (previous.imageKey?.startsWith("covers/") && previous.imageKey !== key) {
+    await storage().delete(previous.imageKey).catch(() => undefined);
+  }
 }
 
 export async function POST(request: Request) {
@@ -19,19 +52,73 @@ export async function POST(request: Request) {
     if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
-    const form = await request.formData();
-    const file = form.get("file");
-    const entity = String(form.get("entity") ?? "");
-    const id = Number(form.get("id"));
-    if (!(file instanceof File) || !id || !["module", "section", "lesson"].includes(entity)) return Response.json({ error: "Selecione uma imagem válida." }, { status: 400 });
-    if (!file.type.startsWith("image/")) return Response.json({ error: "O arquivo precisa ser uma imagem." }, { status: 400 });
-    if (file.size > MAX_IMAGE_SIZE) return Response.json({ error: "A imagem deve ter no máximo 10 MB." }, { status: 413 });
+    const url = new URL(request.url);
+    const action = url.searchParams.get("action");
+    const bucket = storage();
 
-    const key = `covers/${entity}/${id}/${crypto.randomUUID()}-${safeName(file.name)}`;
-    await storage().put(key, file.stream(), { httpMetadata: { contentType: file.type, cacheControl: "private, max-age=86400" } });
-    const mapping = entity === "module" ? ["course_modules", "cover_key"] : entity === "section" ? ["course_sections", "cover_key"] : ["lessons", "thumbnail_key"];
-    await getD1().prepare(`UPDATE ${mapping[0]} SET ${mapping[1]} = ? WHERE id = ?`).bind(key, id).run();
-    return Response.json({ ok: true, key });
+    if (action === "part") {
+      const key = url.searchParams.get("key") ?? "";
+      const uploadId = url.searchParams.get("uploadId") ?? "";
+      const partNumber = Number(url.searchParams.get("partNumber"));
+      const declaredSize = Number(request.headers.get("content-length") ?? 0);
+      if (!key.startsWith("covers/") || !uploadId || !partNumber || partNumber > 4 || !request.body) return Response.json({ error: "Parte de imagem inválida." }, { status: 400 });
+      if (declaredSize > CHUNK_SIZE) return Response.json({ error: "Parte da imagem acima do limite permitido." }, { status: 413 });
+      const multipart = bucket.resumeMultipartUpload?.(key, uploadId);
+      if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
+      const part = await multipart.uploadPart(partNumber, request.body);
+      return Response.json({ part });
+    }
+
+    if (request.headers.get("content-type")?.includes("application/json")) {
+      const payload = await request.json() as { action?: string; entity?: string; id?: number; name?: string; type?: string; size?: number; key?: string; uploadId?: string; parts?: UploadedPart[] };
+
+      if (payload.action === "init") {
+        const configuration = artworkConfiguration(payload.entity ?? "");
+        const id = Number(payload.id);
+        const size = Number(payload.size);
+        const contentType = payload.type ?? "";
+        if (!configuration || !id || !size || size > MAX_IMAGE_SIZE) return Response.json({ error: "A imagem otimizada deve ter no máximo 12 MB." }, { status: 413 });
+        if (!ALLOWED_IMAGE_TYPES.has(contentType)) return Response.json({ error: "Use uma imagem JPG, PNG, WebP ou AVIF." }, { status: 400 });
+        const exists = await getD1().prepare(`SELECT id FROM ${configuration.table} WHERE id = ? LIMIT 1`).bind(id).first();
+        if (!exists) return Response.json({ error: "Conteúdo não encontrado." }, { status: 404 });
+        const key = `covers/${configuration.entity}/${id}/${crypto.randomUUID()}-${safeName(payload.name ?? "capa.webp")}`;
+        const multipart = await bucket.createMultipartUpload?.(key, {
+          httpMetadata: { contentType, cacheControl: "private, max-age=86400" },
+          customMetadata: { originalName: safeName(payload.name ?? "capa.webp") },
+        });
+        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
+        return Response.json({ key, uploadId: multipart.uploadId, chunkSize: CHUNK_SIZE });
+      }
+
+      if (payload.action === "complete") {
+        const configuration = artworkConfiguration(payload.entity ?? "");
+        const id = Number(payload.id);
+        const key = payload.key ?? "";
+        const uploadId = payload.uploadId ?? "";
+        const parts = payload.parts ?? [];
+        if (!configuration || !id || !key.startsWith(`covers/${configuration.entity}/${id}/`) || !uploadId || !parts.length || parts.length > 4) return Response.json({ error: "Upload de capa incompleto." }, { status: 400 });
+        const multipart = bucket.resumeMultipartUpload?.(key, uploadId);
+        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
+        const object = await multipart.complete(parts.sort((left, right) => left.partNumber - right.partNumber));
+        if (object.size > MAX_IMAGE_SIZE) {
+          await bucket.delete(key);
+          return Response.json({ error: "A imagem final ultrapassou 12 MB." }, { status: 413 });
+        }
+        await replaceArtwork(configuration.entity, id, key);
+        return Response.json({ ok: true, key, size: object.size });
+      }
+
+      if (payload.action === "abort") {
+        const key = payload.key ?? "";
+        const uploadId = payload.uploadId ?? "";
+        if (key.startsWith("covers/") && uploadId) await bucket.resumeMultipartUpload?.(key, uploadId)?.abort();
+        return Response.json({ ok: true });
+      }
+
+      return Response.json({ error: "Ação de upload inválida." }, { status: 400 });
+    }
+
+    return Response.json({ error: "Use o envio otimizado de imagens do painel." }, { status: 415 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível enviar a imagem." }, { status: 500 });
   }
