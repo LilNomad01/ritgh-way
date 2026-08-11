@@ -212,6 +212,7 @@ export async function ensureAuthSchema() {
     db.prepare(`CREATE TABLE IF NOT EXISTS exercise_attempts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
+      lesson_id INTEGER,
       lesson_slug TEXT NOT NULL,
       score INTEGER NOT NULL,
       total INTEGER NOT NULL,
@@ -219,6 +220,8 @@ export async function ensureAuthSchema() {
       created_at TEXT NOT NULL
     )`),
   ]);
+  const attemptColumns = await db.prepare("PRAGMA table_info(exercise_attempts)").all<{ name: string }>();
+  if (!(attemptColumns.results as { name: string }[]).some((column) => column.name === "lesson_id")) await db.prepare("ALTER TABLE exercise_attempts ADD COLUMN lesson_id INTEGER").run();
   return db;
 }
 

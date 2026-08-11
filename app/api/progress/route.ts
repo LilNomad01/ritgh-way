@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof Response) return auth;
-  const rows = await (await ensureAuthSchema()).prepare("SELECT lesson_slug AS lessonSlug, progress_percent AS progressPercent, best_score AS bestScore, attempts_count AS attemptsCount, completed_at AS completedAt FROM lesson_progress WHERE user_id = ? ORDER BY updated_at DESC").bind(auth.sub).all();
+  const rows = await (await ensureAuthSchema()).prepare("SELECT lesson_id AS lessonId, lesson_slug AS lessonSlug, progress_percent AS progressPercent, best_score AS bestScore, attempts_count AS attemptsCount, completed_at AS completedAt FROM lesson_progress WHERE user_id = ? ORDER BY updated_at DESC").bind(auth.sub).all();
   return Response.json({ progress: rows.results });
 }
 

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const students = sqliteTable("students", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -56,6 +56,23 @@ export const lessons = sqliteTable("lessons", {
   imagePositionX: integer("thumbnail_position_x").notNull().default(50),
   imagePositionY: integer("thumbnail_position_y").notNull().default(50),
 });
+
+export const lessonExercises = sqliteTable("lesson_exercises", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  lessonId: integer("lesson_id").notNull(),
+  exerciseType: text("exercise_type").notNull().default("choice"),
+  category: text("category").notNull().default("Compreensão"),
+  title: text("title").notNull(),
+  prompt: text("prompt").notNull(),
+  optionsJson: text("options_json"),
+  correctAnswer: text("correct_answer").notNull(),
+  acceptedAnswersJson: text("accepted_answers_json"),
+  explanation: text("explanation").notNull().default(""),
+  speech: text("speech"),
+  skillsJson: text("skills_json"),
+  status: text("status").notNull().default("Publicado"),
+  position: integer("position").notNull().default(0),
+}, (table) => [index("lesson_exercises_lesson_status_position_idx").on(table.lessonId, table.status, table.position)]);
 
 export const userAccounts = sqliteTable("user_accounts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -119,9 +136,23 @@ export const lessonProgress = sqliteTable("lesson_progress", {
 export const exerciseAttempts = sqliteTable("exercise_attempts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: integer("user_id").notNull(),
+  lessonId: integer("lesson_id"),
   lessonSlug: text("lesson_slug").notNull(),
   score: integer("score").notNull(),
   total: integer("total").notNull(),
   answersJson: text("answers_json"),
   createdAt: text("created_at").notNull(),
 });
+
+export const practiceSessions = sqliteTable("practice_sessions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  lessonId: integer("lesson_id").notNull(),
+  currentIndex: integer("current_index").notNull().default(0),
+  answersJson: text("answers_json").notNull().default("[]"),
+  score: integer("score").notNull().default(0),
+  total: integer("total").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("practice_sessions_user_lesson_unique").on(table.userId, table.lessonId)]);

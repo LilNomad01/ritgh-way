@@ -3,8 +3,8 @@ import { assertSameOrigin, requireAdmin } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
-type Entity = "student" | "module" | "section" | "lesson";
-type ReorderEntity = "section" | "lesson";
+type Entity = "student" | "module" | "section" | "lesson" | "exercise";
+type ReorderEntity = "section" | "lesson" | "exercise";
 
 export async function ensureData() {
   const db = getD1();
@@ -44,6 +44,36 @@ export async function ensureData() {
       video_name TEXT,
       video_size INTEGER
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS lesson_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lesson_id INTEGER NOT NULL,
+      exercise_type TEXT NOT NULL DEFAULT 'choice',
+      category TEXT NOT NULL DEFAULT 'Compreensão',
+      title TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      options_json TEXT,
+      correct_answer TEXT NOT NULL,
+      accepted_answers_json TEXT,
+      explanation TEXT NOT NULL DEFAULT '',
+      speech TEXT,
+      skills_json TEXT,
+      status TEXT NOT NULL DEFAULT 'Publicado',
+      position INTEGER NOT NULL DEFAULT 0
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS lesson_exercises_lesson_status_position_idx ON lesson_exercises (lesson_id, status, position)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS practice_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      lesson_id INTEGER NOT NULL,
+      current_index INTEGER NOT NULL DEFAULT 0,
+      answers_json TEXT NOT NULL DEFAULT '[]',
+      score INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS practice_sessions_user_lesson_unique ON practice_sessions (user_id, lesson_id)"),
   ]);
 
   const artworkColumns = [
@@ -53,10 +83,14 @@ export async function ensureData() {
   ] as const;
   for (const table of ["course_modules", "course_sections", "lessons"] as const) {
     const info = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
-    const existing = new Set(info.results.map((column) => column.name));
+    const existing = new Set((info.results as { name: string }[]).map((column) => column.name));
     for (const [columnTable, name, declaration] of artworkColumns) {
       if (columnTable === table && !existing.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`).run();
     }
+  }
+  const attemptColumns = await db.prepare("PRAGMA table_info(exercise_attempts)").all<{ name: string }>();
+  if (attemptColumns.results.length && !(attemptColumns.results as { name: string }[]).some((column) => column.name === "lesson_id")) {
+    await db.prepare("ALTER TABLE exercise_attempts ADD COLUMN lesson_id INTEGER").run();
   }
 
   const moduleCount = await db.prepare("SELECT COUNT(*) AS total FROM course_modules").first<{ total: number }>();
@@ -83,6 +117,31 @@ export async function ensureData() {
       db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?)").bind(5, "Making a compelling case", "24 min", "Conversation + Speaking", "Publicado", 1),
     ]);
   }
+  const exerciseCount = await db.prepare("SELECT COUNT(*) AS total FROM lesson_exercises").first<{ total: number }>();
+  if (!exerciseCount?.total) {
+    const seededLessons = await db.prepare("SELECT id, title FROM lessons WHERE title IN ('Nice to meet you', 'My daily routine', 'At the coffee shop')").all<{ id: number; title: string }>();
+    const lessonIds = new Map((seededLessons.results as { id: number; title: string }[]).map((lesson) => [lesson.title, lesson.id]));
+    const exercises = [
+      ["Nice to meet you", "choice", "Conversação", "Uma apresentação natural", "Você acabou de conhecer uma colega. Qual resposta soa mais natural?", ["Nice meet you.", "It’s nice to meet you.", "I am meet you."], "It’s nice to meet you.", [], "A estrutura ‘It’s nice to meet you’ é a forma natural e completa.", null, ["Speaking", "Compreensão"]],
+      ["Nice to meet you", "fill", "Gramática em contexto", "Complete sem traduzir", "Complete: My name ___ Laura.", null, "is", ["'s"], "Usamos ‘is’ para ligar ‘my name’ ao nome da pessoa.", null, ["Gramática"]],
+      ["Nice to meet you", "writing", "Produção", "Responda com intenção", "Escreva uma frase curta para dizer que foi um prazer conhecer alguém.", null, "It was nice to meet you.", ["Nice to meet you.", "It’s nice to meet you."], "Mais de uma resposta natural é aceita; o importante é expressar a intenção completa.", null, ["Writing", "Speaking"]],
+      ["My daily routine", "choice", "Compreensão", "Rotina real", "Qual frase descreve corretamente um hábito que acontece todos os dias?", ["I am wake up at seven every day.", "I wake up at seven every day.", "I waking up at seven every day."], "I wake up at seven every day.", [], "Para hábitos usamos o presente simples: I wake up.", null, ["Gramática", "Compreensão"]],
+      ["My daily routine", "listening", "Listening", "Escute a rotina", "Ouça e escolha a frase que corresponde ao áudio.", ["She starts work at eight.", "She stopped working at eight.", "She studies until eight."], "She starts work at eight.", [], "‘Starts work’ indica o horário em que ela começa a trabalhar.", "She starts work at eight.", ["Listening"]],
+      ["My daily routine", "correction", "Precisão", "Encontre a forma natural", "Qual opção corrige a frase: ‘He go to the gym after work’?", ["He goes to the gym after work.", "He going to the gym after work.", "He do go to the gym after work."], "He goes to the gym after work.", [], "Com he/she/it, o verbo recebe -s no presente simples.", null, ["Gramática"]],
+      ["My daily routine", "fill", "Vocabulário", "Escolha pelo contexto", "Complete: I usually ___ breakfast before leaving home.", null, "have", ["eat"], "‘Have breakfast’ é a combinação mais frequente; ‘eat breakfast’ também é possível.", null, ["Vocabulário"]],
+      ["My daily routine", "writing", "Produção", "Explique seu hábito", "Responda em uma frase: What do you usually do after work?", null, "I usually relax after work.", ["I usually go home after work.", "I usually study after work."], "Uma resposta completa usa sujeito, advérbio de frequência e uma ação coerente.", null, ["Writing", "Speaking"]],
+      ["At the coffee shop", "choice", "Conversação", "Faça um pedido educado", "Você quer pedir um café com leite. O que diria?", ["Give me a latte.", "Could I have a latte, please?", "I want latte now."], "Could I have a latte, please?", [], "‘Could I have…?’ soa natural e educado para fazer pedidos.", null, ["Speaking", "Compreensão"]],
+      ["At the coffee shop", "listening", "Listening", "Entenda o atendente", "Ouça e identifique o que o atendente perguntou.", ["O tamanho da bebida", "A forma de pagamento", "O nome do cliente"], "O tamanho da bebida", [], "‘What size would you like?’ pergunta o tamanho desejado.", "What size would you like?", ["Listening"]],
+      ["At the coffee shop", "correction", "Precisão", "Corrija sem traduzir", "Qual é a forma natural de pedir leite vegetal?", ["Can I get it with oat milk?", "Can I put oat milk it?", "I can oat milk?"], "Can I get it with oat milk?", [], "‘Can I get it with…?’ permite ajustar o pedido de forma natural.", null, ["Speaking", "Gramática"]],
+      ["At the coffee shop", "fill", "Vocabulário", "Complete o atendimento", "Complete: Would you like that for here or to ___?", null, "go", [], "A expressão fixa é ‘for here or to go’.", null, ["Vocabulário"]],
+      ["At the coffee shop", "writing", "Produção", "Responda ao atendente", "O atendente perguntou ‘Anything else?’. Responda que só isso, agradecendo.", null, "That’s all, thank you.", ["No, that’s all, thank you.", "That will be all, thank you."], "Uma resposta curta e educada encerra o pedido naturalmente.", null, ["Writing", "Speaking"]],
+    ] as const;
+    const statements = exercises.flatMap((item, index) => {
+      const lessonId = lessonIds.get(item[0]);
+      return lessonId ? [db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Publicado', ?)").bind(lessonId, item[1], item[2], item[3], item[4], item[5] ? JSON.stringify(item[5]) : null, item[6], JSON.stringify(item[7]), item[8], item[9], JSON.stringify(item[10]), index + 1)] : [];
+    });
+    if (statements.length) await db.batch(statements);
+  }
   return db;
 }
 
@@ -90,18 +149,26 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function jsonArray(value: unknown, field: string) {
+  const source = clean(value) || "[]";
+  const parsed = JSON.parse(source) as unknown;
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) throw new Error(`${field} precisa ser uma lista JSON de textos.`);
+  return JSON.stringify(parsed.map((item) => item.trim()).filter(Boolean));
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const db = await ensureData();
-    const [students, modules, sections, lessons] = await Promise.all([
+    const [students, modules, sections, lessons, exercises] = await Promise.all([
       db.prepare("SELECT id, full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students ORDER BY id DESC").all(),
       db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id").all(),
       db.prepare("SELECT id, module_id AS moduleId, title, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id").all(),
       db.prepare("SELECT id, section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id").all(),
+      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, skills_json AS skillsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id").all(),
     ]);
-    return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results });
+    return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results, exercises: exercises.results });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar os dados." }, { status: 500 });
   }
@@ -132,6 +199,12 @@ export async function POST(request: Request) {
     } else if (payload.entity === "lesson") {
       result = await db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.sectionId), clean(payload.title), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+    } else if (payload.entity === "exercise") {
+      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
+      const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
+      result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
@@ -164,6 +237,12 @@ export async function PUT(request: Request) {
       await db.prepare("UPDATE course_sections SET module_id = ?, title = ?, position = ? WHERE id = ?").bind(Number(payload.moduleId), clean(payload.title), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "lesson") {
       await db.prepare("UPDATE lessons SET section_id = ?, title = ?, duration = ?, lesson_type = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, id).run();
+    } else if (payload.entity === "exercise") {
+      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
+      const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
+      await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, status = ?, position = ? WHERE id = ?")
+        .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status), Number(payload.position) || 0, id).run();
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
@@ -182,7 +261,7 @@ export async function PATCH(request: Request) {
     const db = await ensureData();
 
     if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
-      const table = payload.entity === "lesson" ? "lessons" : "course_sections";
+      const table = payload.entity === "lesson" ? "lessons" : payload.entity === "exercise" ? "lesson_exercises" : "course_sections";
       const statements = payload.orderedIds.map((id, index) => db.prepare(`UPDATE ${table} SET position = ? WHERE id = ?`).bind(index + 1, Number(id)));
       await db.batch(statements);
       return Response.json({ ok: true });
@@ -227,7 +306,7 @@ export async function DELETE(request: Request) {
     const entity = url.searchParams.get("entity") as Entity | null;
     const id = Number(url.searchParams.get("id"));
     const db = await ensureData();
-    const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons" };
+    const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons", exercise: "lesson_exercises" };
     if (!entity || !tables[entity] || !id) return Response.json({ error: "Dados inválidos." }, { status: 400 });
     if (entity === "student") {
       const student = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
@@ -240,6 +319,8 @@ export async function DELETE(request: Request) {
           db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, account?.id ?? 0),
         ]);
       }
+    } else if (entity === "lesson") {
+      await db.batch([db.prepare("DELETE FROM lesson_exercises WHERE lesson_id = ?").bind(id), db.prepare("DELETE FROM lessons WHERE id = ?").bind(id)]);
     } else {
       await db.prepare(`DELETE FROM ${tables[entity]} WHERE id = ?`).bind(id).run();
     }

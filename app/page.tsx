@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AdminPanel } from "./components/AdminPanel";
 import { ExercisePlayer } from "./components/ExercisePlayer";
+import { JourneyView } from "./components/JourneyView";
 import { LessonsLibrary } from "./components/LessonsLibrary";
 import { MaterialIcon } from "./components/MaterialIcon";
 import { Onboarding } from "./components/Onboarding";
 import { PasswordChange } from "./components/PasswordChange";
+import { PracticeHub } from "./components/PracticeHub";
 
 type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
 
@@ -25,12 +28,12 @@ const week = [
 
 const demoProfile: Profile = { fullName: "Alex Martins", email: "alex@rightway.com", level: "Intermediário", placementScore: 6 };
 
-function Dashboard({ onLesson, onNavigate }: { onLesson: () => void; onNavigate: (view: string) => void }) {
+function Dashboard({ onContinueLesson, onPractice, onNavigate }: { onContinueLesson: () => void; onPractice: () => void; onNavigate: (view: string) => void }) {
   return (
     <div className="content-grid">
       <div className="primary-column">
         <section className="continue-card">
-          <div className="card-content"><span className="eyebrow">CONTINUE DE ONDE PAROU</span><p className="lesson-meta">Módulo 02 · Aula 07</p><h2>At the coffee shop</h2><p className="lesson-copy">Peça seu café com confiança e pratique expressões que você realmente vai usar.</p><div className="progress-row"><div className="progress-track"><span style={{ width: "68%" }} /></div><strong>68%</strong></div><button className="primary-button" onClick={onLesson}>Continuar aula <span>→</span></button></div>
+          <div className="card-content"><span className="eyebrow">CONTINUE DE ONDE PAROU</span><p className="lesson-meta">Módulo 02 · Aula 07</p><h2>At the coffee shop</h2><p className="lesson-copy">Peça seu café com confiança e pratique expressões que você realmente vai usar.</p><div className="progress-row"><div className="progress-track"><span style={{ width: "68%" }} /></div><strong>68%</strong></div><button className="primary-button" onClick={onContinueLesson}>Continuar aula <span>→</span></button></div>
           <div className="lesson-visual" aria-hidden="true"><span className="orbit orbit-one" /><span className="orbit orbit-two" /><div className="cup"><span /></div><div className="phrase-card"><small>TRY SAYING</small><strong>“Could I have a latte?”</strong><div><i /><i /><i /><i /><i /></div></div><span className="spark spark-one">✦</span><span className="spark spark-two">✦</span></div>
         </section>
 
@@ -45,10 +48,10 @@ function Dashboard({ onLesson, onNavigate }: { onLesson: () => void; onNavigate:
       </div>
 
       <aside className="right-column">
-        <section className="coach-card"><div className="coach-top"><div className="coach-avatar">M<span>✦</span></div><div><small>SUA PROFESSORA VIRTUAL</small><strong>Maya</strong></div><span className="online-dot" /></div><blockquote>“Cinco dias seguidos! Hoje vamos transformar vocabulário em conversa de verdade.”</blockquote><button onClick={onLesson}>Praticar com Maya <span>→</span></button></section>
+        <section className="coach-card"><div className="coach-top"><div className="coach-avatar">M<span>✦</span></div><div><small>SUA PROFESSORA VIRTUAL</small><strong>Maya</strong></div><span className="online-dot" /></div><blockquote>“Cinco dias seguidos! Hoje vamos transformar vocabulário em conversa de verdade.”</blockquote><button onClick={onPractice}>Praticar com Maya <span>→</span></button></section>
         <section className="week-card"><div className="week-title"><div><small>META SEMANAL</small><h3>5 de 7 dias</h3></div><span>72%</span></div><div className="week-days">{week.map((item, index) => <div key={index}><span className={item.done ? "done" : ""}>{item.done ? "✓" : index + 1}</span><small>{item.day}</small></div>)}</div><p>Mais <strong>2 dias</strong> para bater sua meta.</p></section>
         <section className="ranking-card"><div className="ranking-head"><div><small>RANKING PESSOAL</small><h3>Você subiu 3 posições</h3></div><span>↗</span></div><div className="ranking-position"><span>#</span><strong>18</strong><small>entre 842 alunos</small></div><div className="ranking-bar"><span /></div><p>Você está no <strong>top 3%</strong> esta semana.</p></section>
-        <section className="daily-card"><span>✦</span><div><small>DESAFIO RÁPIDO</small><strong>5 exercícios variados</strong></div><button onClick={onLesson} aria-label="Abrir desafio">→</button></section>
+        <section className="daily-card"><span>✦</span><div><small>DESAFIO RÁPIDO</small><strong>5 exercícios variados</strong></div><button onClick={onPractice} aria-label="Abrir desafio">→</button></section>
       </aside>
     </div>
   );
@@ -59,10 +62,12 @@ function Achievements() {
   return <div className="achievements-page page-view"><div className="page-hero achievements-hero"><div><span className="eyebrow">SUAS CONQUISTAS</span><h1>Cada passo merece ser celebrado.</h1><p>3 de 12 medalhas conquistadas · Continue avançando.</p></div><div className="trophy">★<span>3</span></div></div><div className="achievement-grid">{items.map((item) => <article className={item.earned ? "earned" : "locked"} key={item.title}><span>{item.icon}</span><div><h3>{item.title}</h3><p>{item.text}</p></div><b>{item.earned ? "Conquistada" : "Bloqueada"}</b></article>)}</div></div>;
 }
 
-export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
+type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
+
+export function RightWayApp({ adminEntry = false, initialView = "Início", practiceLessonId, practiceSession = false }: { adminEntry?: boolean; initialView?: AppView; practiceLessonId?: number; practiceSession?: boolean }) {
+  const router = useRouter();
   const [dark, setDark] = useState(() => typeof window !== "undefined" && localStorage.getItem("rightway-theme") === "dark");
-  const [active, setActive] = useState("Início");
-  const [lessonOpen, setLessonOpen] = useState(false);
+  const [active, setActive] = useState<string>(adminEntry ? "Admin" : initialView);
   const [showOnboarding, setShowOnboarding] = useState(true);
   const [profile, setProfile] = useState<Profile>(demoProfile);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -75,9 +80,9 @@ export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
       const result = await response.json() as { profile: Profile };
       setProfile(result.profile);
       setShowOnboarding(false);
-      setActive(result.profile.role === "admin" && adminEntry ? "Admin" : "Início");
+      setActive(result.profile.role === "admin" && adminEntry ? "Admin" : initialView);
     }).catch(() => setShowOnboarding(true)).finally(() => setCheckingSession(false));
-  }, [adminEntry]);
+  }, [adminEntry, initialView]);
 
   function toggleTheme() {
     setDark((value) => { localStorage.setItem("rightway-theme", value ? "light" : "dark"); return !value; });
@@ -85,8 +90,8 @@ export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
 
   function selectNav(label: string) {
     setMobileMenuOpen(false);
-    if (label === "Praticar") { setLessonOpen(true); return; }
-    setActive(label);
+    const destinations: Record<string, string> = { Início: "/", Aulas: "/aulas", Jornada: "/jornada", Praticar: "/praticar", Conquistas: "/conquistas", Admin: "/admin" };
+    router.push(destinations[label] ?? "/");
   }
 
   function finishOnboarding(nextProfile: Profile) {
@@ -118,8 +123,10 @@ export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
       <section className="workspace">
         <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><button className="streak-pill" aria-label="Sequência de cinco dias"><MaterialIcon name="local_fire_department" filled /><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
 
-        {active === "Início" && <Dashboard onLesson={() => setLessonOpen(true)} onNavigate={selectNav} />}
-        {(active === "Aulas" || active === "Jornada") && <LessonsLibrary onStartLesson={() => setLessonOpen(true)} />}
+        {active === "Início" && <Dashboard onContinueLesson={() => router.push("/aulas")} onPractice={() => router.push("/praticar")} onNavigate={selectNav} />}
+        {active === "Aulas" && <LessonsLibrary onPracticeLesson={(lessonId) => router.push(`/praticar/${lessonId}`)} />}
+        {active === "Jornada" && <JourneyView onContinue={() => router.push("/aulas")} />}
+        {active === "Praticar" && <PracticeHub lessonId={practiceLessonId} onOpenDetail={(lessonId) => router.push(`/praticar/${lessonId}`)} onStartSession={(lessonId) => router.push(`/praticar/${lessonId}/sessao`)} onBackToHub={() => router.push("/praticar")} />}
         {active === "Conquistas" && <Achievements />}
         {active === "Admin" && profile.role === "admin" && <><div className="admin-security-banner"><MaterialIcon name="verified_user" filled /><div><strong>Sessão administrativa protegida</strong><small>JWT de curta duração, cookie HTTP-only e renovação segura.</small></div>{profile.mustChangePassword && <button onClick={() => setPasswordChangeOpen(true)}>Trocar senha inicial</button>}</div><AdminPanel /></>}
       </section>
@@ -131,7 +138,7 @@ export function RightWayApp({ adminEntry = false }: { adminEntry?: boolean }) {
           <div className="mobile-drawer-account"><span>{initials}</span><div><strong>{profile.fullName}</strong><small>{profile.role === "admin" ? "Administrador raiz" : profile.level}</small></div><button onClick={logout} aria-label="Sair da conta"><MaterialIcon name="logout" /></button></div>
         </aside>
       </div>}
-      {lessonOpen && <ExercisePlayer onClose={() => setLessonOpen(false)} />}
+      {practiceSession && practiceLessonId && <ExercisePlayer lessonId={practiceLessonId} onClose={() => router.push(`/praticar/${practiceLessonId}`)} />}
       {passwordChangeOpen && <PasswordChange onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
     </main>
   );
