@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MaterialIcon } from "./MaterialIcon";
 
 type Student = { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string };
-type Artwork = { imageKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
+type Artwork = { imageKey?: string; imageMobileKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
 type Module = Artwork & { id: number; title: string; level: string; description: string; status: string; position: number };
 type Section = Artwork & { id: number; moduleId: number; title: string; description: string; status: string; position: number };
 type Lesson = Artwork & { id: number; sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number; videoKey?: string; videoName?: string; videoSize?: number };
@@ -19,13 +19,14 @@ const VIDEO_CHUNK_SIZE = 8 * 1024 * 1024;
 const ARTWORK_CHUNK_SIZE = 5 * 1024 * 1024;
 const MAX_ARTWORK_SOURCE_SIZE = 25 * 1024 * 1024;
 const MAX_ARTWORK_DIMENSION = 2400;
+const MAX_MOBILE_ARTWORK_DIMENSION = 1800;
 const TARGET_ARTWORK_SIZE = 2.5 * 1024 * 1024;
 
 async function imageBlob(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
 }
 
-async function optimizeArtwork(file: File) {
+async function optimizeArtwork(file: File, device: "desktop" | "mobile") {
   if (!file.type.startsWith("image/")) throw new Error("O arquivo precisa ser uma imagem.");
   if (file.size > MAX_ARTWORK_SOURCE_SIZE) throw new Error("A imagem original deve ter no máximo 25 MB.");
 
@@ -37,7 +38,8 @@ async function optimizeArtwork(file: File) {
       element.onerror = () => reject(new Error("Não foi possível abrir essa imagem. Use JPG, PNG, WebP ou AVIF."));
       element.src = objectUrl;
     });
-    const scale = Math.min(1, MAX_ARTWORK_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight));
+    const maxDimension = device === "mobile" ? MAX_MOBILE_ARTWORK_DIMENSION : MAX_ARTWORK_DIMENSION;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -81,10 +83,12 @@ async function securedFetch(input: RequestInfo | URL, init?: RequestInit) {
   return response;
 }
 
-function ArtworkPreview({ item, className = "", icon = "school" }: { item: Artwork; className?: string; icon?: string }) {
-  const imageUrl = item.imageKey ? `/api/media?key=${encodeURIComponent(item.imageKey)}` : "";
+function ArtworkPreview({ item, className = "", icon = "school", device }: { item: Artwork; className?: string; icon?: string; device?: "desktop" | "mobile" }) {
+  const desktopKey = item.imageKey ?? item.imageMobileKey;
+  const selectedKey = device === "mobile" ? item.imageMobileKey : device === "desktop" ? item.imageKey : desktopKey;
+  const imageStyle = { objectFit: item.imageFit ?? "cover", objectPosition: `${item.imagePositionX ?? 50}% ${item.imagePositionY ?? 50}%`, transform: `scale(${(item.imageZoom ?? 100) / 100})` } as const;
   return <div className={`artwork-preview ${className}`.trim()}>
-    {imageUrl ? <img src={imageUrl} alt="" style={{ objectFit: item.imageFit ?? "cover", objectPosition: `${item.imagePositionX ?? 50}% ${item.imagePositionY ?? 50}%`, transform: `scale(${(item.imageZoom ?? 100) / 100})` }} /> : <div className="artwork-fallback"><MaterialIcon name={icon} /><span>RIGHT WAY</span></div>}
+    {selectedKey ? device ? <img src={`/api/media?key=${encodeURIComponent(selectedKey)}`} alt="" style={imageStyle} /> : <picture>{item.imageMobileKey && <source media="(max-width: 720px)" srcSet={`/api/media?key=${encodeURIComponent(item.imageMobileKey)}`} />}<img src={`/api/media?key=${encodeURIComponent(selectedKey)}`} alt="" style={imageStyle} /></picture> : <div className="artwork-fallback"><MaterialIcon name={icon} /><span>{device === "mobile" ? "CAPA MOBILE" : device === "desktop" ? "CAPA DESKTOP" : "RIGHT WAY"}</span></div>}
     <span className="artwork-overlay" style={{ opacity: (item.imageOverlay ?? 22) / 100 }} />
   </div>;
 }
@@ -247,11 +251,12 @@ export function AdminPanel() {
     setError("");
     let pendingUpload: { key: string; uploadId: string } | null = null;
     try {
-      const optimized = await optimizeArtwork(file);
+      const device = artworkDevice;
+      const optimized = await optimizeArtwork(file, device);
       setArtworkUploadProgress(12);
       const entity = artworkEditor.entity;
       const id = artworkEditor.item.id;
-      const init = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "init", entity, id, name: optimized.name, type: optimized.type, size: optimized.size }) });
+      const init = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "init", entity, device, id, name: optimized.name, type: optimized.type, size: optimized.size }) });
       const initResult = await readResponse(init) as { key?: string; uploadId?: string; chunkSize?: number; error?: string };
       if (!init.ok || !initResult.key || !initResult.uploadId) throw new Error(init.status === 413 ? "A imagem ainda está grande demais. Escolha uma imagem de até 25 MB." : initResult.error ?? "Não foi possível iniciar o envio da capa.");
       pendingUpload = { key: initResult.key, uploadId: initResult.uploadId };
@@ -267,16 +272,17 @@ export function AdminPanel() {
         setArtworkUploadProgress(12 + Math.round((Math.min(start + chunkSize, optimized.size) / optimized.size) * 78));
       }
 
-      const complete = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", entity, id, key: initResult.key, uploadId: initResult.uploadId, parts }) });
+      const complete = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", entity, device, id, key: initResult.key, uploadId: initResult.uploadId, parts }) });
       const completeResult = await readResponse(complete) as { key?: string; error?: string };
       if (!complete.ok || !completeResult.key) throw new Error(completeResult.error ?? "Não foi possível finalizar a capa.");
       pendingUpload = null;
       setArtworkUploadProgress(100);
-      setArtworkEditor((current) => current ? { ...current, item: { ...current.item, imageKey: completeResult.key } } : null);
+      const imageProperty = device === "mobile" ? "imageMobileKey" : "imageKey";
+      setArtworkEditor((current) => current ? { ...current, item: { ...current.item, [imageProperty]: completeResult.key } } : null);
       setData((current) => {
-        if (entity === "module") return { ...current, modules: current.modules.map((item) => item.id === id ? { ...item, imageKey: completeResult.key } : item) };
-        if (entity === "section") return { ...current, sections: current.sections.map((item) => item.id === id ? { ...item, imageKey: completeResult.key } : item) };
-        return { ...current, lessons: current.lessons.map((item) => item.id === id ? { ...item, imageKey: completeResult.key } : item) };
+        if (entity === "module") return { ...current, modules: current.modules.map((item) => item.id === id ? { ...item, [imageProperty]: completeResult.key } : item) };
+        if (entity === "section") return { ...current, sections: current.sections.map((item) => item.id === id ? { ...item, [imageProperty]: completeResult.key } : item) };
+        return { ...current, lessons: current.lessons.map((item) => item.id === id ? { ...item, [imageProperty]: completeResult.key } : item) };
       });
     } catch (uploadError) {
       if (pendingUpload) {
@@ -425,9 +431,10 @@ export function AdminPanel() {
       })()}
       {artworkEditor && <div className="admin-editor-backdrop"><div className="admin-editor artwork-editor">
         <div className="editor-head"><div><span className="eyebrow">EDITOR VISUAL</span><h2>Capa de {artworkEditor.item.title}</h2></div><button type="button" onClick={() => setArtworkEditor(null)}><MaterialIcon name="close" /></button></div>
-        <div className="artwork-device-tabs"><button className={artworkDevice === "desktop" ? "active" : ""} onClick={() => setArtworkDevice("desktop")}><MaterialIcon name="desktop_windows" />Desktop</button><button className={artworkDevice === "mobile" ? "active" : ""} onClick={() => setArtworkDevice("mobile")}><MaterialIcon name="smartphone" />Mobile</button></div>
-        <ArtworkPreview item={artworkEditor.item} className={`artwork-editor-preview ${artworkDevice}`} icon={artworkEditor.entity === "lesson" ? "play_arrow" : "school"} />
-        <button className="artwork-upload-button" disabled={artworkUploading} onClick={() => artworkFileRef.current?.click()}><MaterialIcon name="upload" />{artworkUploading ? artworkUploadProgress < 12 ? "Otimizando imagem..." : `Enviando imagem · ${artworkUploadProgress}%` : artworkEditor.item.imageKey ? "Trocar imagem" : "Enviar imagem de capa"}</button>
+        <div className="artwork-device-tabs"><button className={artworkDevice === "desktop" ? "active" : ""} onClick={() => setArtworkDevice("desktop")}><MaterialIcon name="desktop_windows" />Desktop<MaterialIcon name={artworkEditor.item.imageKey ? "check_circle" : "add_photo_alternate"} /></button><button className={artworkDevice === "mobile" ? "active" : ""} onClick={() => setArtworkDevice("mobile")}><MaterialIcon name="smartphone" />Mobile<MaterialIcon name={artworkEditor.item.imageMobileKey ? "check_circle" : "add_photo_alternate"} /></button></div>
+        <ArtworkPreview item={artworkEditor.item} className={`artwork-editor-preview ${artworkDevice}`} icon={artworkEditor.entity === "lesson" ? "play_arrow" : "school"} device={artworkDevice} />
+        <div className="artwork-device-note"><MaterialIcon name="devices" /><div><strong>Capas independentes</strong><span>A imagem de {artworkDevice === "desktop" ? "desktop" : "mobile"} é salva separadamente e não altera a outra versão.</span></div></div>
+        <button className="artwork-upload-button" disabled={artworkUploading} onClick={() => artworkFileRef.current?.click()}><MaterialIcon name="upload" />{artworkUploading ? artworkUploadProgress < 12 ? "Otimizando imagem..." : `Enviando imagem · ${artworkUploadProgress}%` : (artworkDevice === "mobile" ? artworkEditor.item.imageMobileKey : artworkEditor.item.imageKey) ? `Trocar imagem de ${artworkDevice === "mobile" ? "mobile" : "desktop"}` : `Enviar imagem de ${artworkDevice === "mobile" ? "mobile" : "desktop"}`}</button>
         <input ref={artworkFileRef} hidden type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(event) => uploadArtwork(event.target.files?.[0])} />
         <p className="artwork-upload-hint"><MaterialIcon name="speed" /> JPG, PNG, WebP ou AVIF até 25 MB. A imagem é otimizada automaticamente para carregar rápido no celular.</p>
         <div className="artwork-controls"><label>Modo de exibição<select value={artworkEditor.item.imageFit ?? "cover"} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageFit: event.target.value as Artwork["imageFit"] } })}><option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option></select></label><label>Zoom <span>{artworkEditor.item.imageZoom ?? 100}%</span><input type="range" min="100" max="180" value={artworkEditor.item.imageZoom ?? 100} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageZoom: Number(event.target.value) } })} /></label><label>Overlay <span>{artworkEditor.item.imageOverlay ?? 22}%</span><input type="range" min="0" max="75" value={artworkEditor.item.imageOverlay ?? 22} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imageOverlay: Number(event.target.value) } })} /></label><div className="form-row"><label>Posição horizontal <span>{artworkEditor.item.imagePositionX ?? 50}%</span><input type="range" min="0" max="100" value={artworkEditor.item.imagePositionX ?? 50} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imagePositionX: Number(event.target.value) } })} /></label><label>Posição vertical <span>{artworkEditor.item.imagePositionY ?? 50}%</span><input type="range" min="0" max="100" value={artworkEditor.item.imagePositionY ?? 50} onChange={(event) => setArtworkEditor({ ...artworkEditor, item: { ...artworkEditor.item, imagePositionY: Number(event.target.value) } })} /></label></div></div>

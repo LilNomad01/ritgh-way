@@ -11,7 +11,8 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 function LessonArtwork({ lesson }: { lesson: CourseLesson }) {
-  return <div className="lesson-thumb">{lesson.imageKey ? <img src={`/api/media?key=${encodeURIComponent(lesson.imageKey)}`} alt="" style={{ objectFit: lesson.imageFit ?? "cover", objectPosition: `${lesson.imagePositionX ?? 50}% ${lesson.imagePositionY ?? 50}%`, transform: `scale(${(lesson.imageZoom ?? 100) / 100})` }} /> : <span><MaterialIcon name={lesson.videoKey ? "play_arrow" : "movie"} /></span>}<i style={{ opacity: (lesson.imageOverlay ?? 18) / 100 }} /></div>;
+  const desktopKey = lesson.imageKey ?? lesson.imageMobileKey;
+  return <div className="lesson-thumb">{desktopKey ? <picture>{lesson.imageMobileKey && <source media="(max-width: 720px)" srcSet={`/api/media?key=${encodeURIComponent(lesson.imageMobileKey)}`} />}<img src={`/api/media?key=${encodeURIComponent(desktopKey)}`} alt="" style={{ objectFit: lesson.imageFit ?? "cover", objectPosition: `${lesson.imagePositionX ?? 50}% ${lesson.imagePositionY ?? 50}%`, transform: `scale(${(lesson.imageZoom ?? 100) / 100})` }} /></picture> : <span><MaterialIcon name={lesson.videoKey ? "play_arrow" : "movie"} /></span>}<i style={{ opacity: (lesson.imageOverlay ?? 18) / 100 }} /></div>;
 }
 
 function stateLabel(state?: LessonState) {

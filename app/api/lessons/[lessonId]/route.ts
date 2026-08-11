@@ -14,7 +14,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const [lesson, academic] = await Promise.all([
     db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.description, l.duration, l.lesson_type AS lessonType,
       l.video_key AS videoKey, l.video_name AS videoName, l.video_size AS videoSize,
-      l.thumbnail_key AS imageKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
+      l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
       l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
       s.title AS sectionTitle, s.description AS sectionDescription, m.id AS moduleId, m.title AS moduleTitle, m.level
       FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id

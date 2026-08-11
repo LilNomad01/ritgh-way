@@ -28,7 +28,8 @@ type PracticeData = { modules: CourseModule[]; sections: CourseSection[]; practi
 const emptyData: PracticeData = { modules: [], sections: [], practices: [] };
 
 function PracticeArtwork({ practice }: { practice: PracticeSummary }) {
-  return <div className="practice-card-art">{practice.imageKey ? <img src={`/api/media?key=${encodeURIComponent(practice.imageKey)}`} alt="" style={{ objectFit: practice.imageFit ?? "cover", objectPosition: `${practice.imagePositionX ?? 50}% ${practice.imagePositionY ?? 50}%`, transform: `scale(${(practice.imageZoom ?? 100) / 100})` }} /> : <div><MaterialIcon name="target" /><span>RIGHT WAY PRACTICE</span></div>}<i style={{ opacity: (practice.imageOverlay ?? 20) / 100 }} /></div>;
+  const desktopKey = practice.imageKey ?? practice.imageMobileKey;
+  return <div className="practice-card-art">{desktopKey ? <picture>{practice.imageMobileKey && <source media="(max-width: 720px)" srcSet={`/api/media?key=${encodeURIComponent(practice.imageMobileKey)}`} />}<img src={`/api/media?key=${encodeURIComponent(desktopKey)}`} alt="" style={{ objectFit: practice.imageFit ?? "cover", objectPosition: `${practice.imagePositionX ?? 50}% ${practice.imagePositionY ?? 50}%`, transform: `scale(${(practice.imageZoom ?? 100) / 100})` }} /></picture> : <div><MaterialIcon name="target" /><span>RIGHT WAY PRACTICE</span></div>}<i style={{ opacity: (practice.imageOverlay ?? 20) / 100 }} /></div>;
 }
 
 function PracticeCard({ practice, onOpen }: { practice: PracticeSummary; onOpen: () => void }) {

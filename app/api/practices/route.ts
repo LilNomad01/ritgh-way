@@ -4,7 +4,7 @@ import { computeAcademicState, type LessonAcademicState } from "../../lib/academ
 
 export const dynamic = "force-dynamic";
 
-type PracticeRow = { id: number; sectionId: number; title: string; duration: string; lessonType: string; imageKey?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number; level: string; moduleTitle: string; sectionTitle: string; exerciseCount: number; skillsJson?: string };
+type PracticeRow = { id: number; sectionId: number; title: string; duration: string; lessonType: string; imageKey?: string; imageMobileKey?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number; level: string; moduleTitle: string; sectionTitle: string; exerciseCount: number; skillsJson?: string };
 type AttemptRow = { lessonId: number; score: number; total: number; createdAt: string };
 type SessionRow = { lessonId: number; currentIndex: number; status: "active" | "completed" };
 
@@ -17,10 +17,10 @@ export async function GET(request: Request) {
   if (auth instanceof Response) return auth;
   const db = await ensureData();
   const [modules, sections, practiceRows, attempts, sessions, academic] = await Promise.all([
-    db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules WHERE status = 'Publicado' ORDER BY position, id").all(),
-    db.prepare("SELECT s.id, s.module_id AS moduleId, s.title, s.position, s.cover_key AS imageKey, s.cover_fit AS imageFit, s.cover_zoom AS imageZoom, s.cover_overlay AS imageOverlay, s.cover_position_x AS imagePositionX, s.cover_position_y AS imagePositionY FROM course_sections s JOIN course_modules m ON m.id = s.module_id WHERE m.status = 'Publicado' ORDER BY s.module_id, s.position, s.id").all(),
+    db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules WHERE status = 'Publicado' ORDER BY position, id").all(),
+    db.prepare("SELECT s.id, s.module_id AS moduleId, s.title, s.position, s.cover_key AS imageKey, s.cover_mobile_key AS imageMobileKey, s.cover_fit AS imageFit, s.cover_zoom AS imageZoom, s.cover_overlay AS imageOverlay, s.cover_position_x AS imagePositionX, s.cover_position_y AS imagePositionY FROM course_sections s JOIN course_modules m ON m.id = s.module_id WHERE m.status = 'Publicado' ORDER BY s.module_id, s.position, s.id").all(),
     db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType,
-      l.thumbnail_key AS imageKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
+      l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
       l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
       m.level, m.title AS moduleTitle, s.title AS sectionTitle, COUNT(e.id) AS exerciseCount,
       GROUP_CONCAT(e.skills_json, '||') AS skillsJson

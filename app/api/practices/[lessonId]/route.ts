@@ -5,7 +5,7 @@ import { computeAcademicState, type LessonAcademicState } from "../../../lib/aca
 export const dynamic = "force-dynamic";
 
 type ExerciseRow = { id: number; type: string; category: string; title: string; prompt: string; optionsJson?: string; correct: string; acceptedJson?: string; explanation: string; speech?: string; skillsJson?: string };
-type PracticeRow = { id: number; sectionId: number; title: string; duration: string; lessonType: string; imageKey?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number; level: string; moduleTitle: string; sectionTitle: string };
+type PracticeRow = { id: number; sectionId: number; title: string; duration: string; lessonType: string; imageKey?: string; imageMobileKey?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number; level: string; moduleTitle: string; sectionTitle: string };
 
 function parseList(value?: string) {
   try { return JSON.parse(value ?? "[]") as string[]; } catch { return []; }
@@ -19,7 +19,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   if (!lessonId) return Response.json({ error: "Prática inválida." }, { status: 400 });
   const db = await ensureData();
   const practice = await db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType,
-    l.thumbnail_key AS imageKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
+    l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
     l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
     m.level, m.title AS moduleTitle, s.title AS sectionTitle
     FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id

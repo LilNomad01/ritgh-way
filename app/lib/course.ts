@@ -1,5 +1,6 @@
 export type Artwork = {
   imageKey?: string;
+  imageMobileKey?: string;
   imageFit?: "cover" | "contain" | "fill";
   imageZoom?: number;
   imageOverlay?: number;

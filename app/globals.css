@@ -314,7 +314,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .module-visual-card { position: relative; min-height: 410px; overflow: hidden; border: 1px solid #dce4ef; border-radius: 22px; color: #fff; background: var(--navy); box-shadow: 0 14px 35px rgba(7,27,67,.13); transition: transform .2s ease, box-shadow .2s ease; }
 .module-visual-card:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(7,27,67,.19); }
 .artwork-preview { position: relative; overflow: hidden; background: linear-gradient(145deg,#071b43,#1d4a98); }
-.artwork-preview > img { width: 100%; height: 100%; display: block; transition: transform .25s ease; }
+.artwork-preview > img,.artwork-preview > picture,.artwork-preview > picture > img { width: 100%; height: 100%; display: block; transition: transform .25s ease; }
 .artwork-overlay { position: absolute; inset: 0; pointer-events: none; background: #020a1d; }
 .artwork-fallback { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; color: rgba(255,255,255,.92); background: radial-gradient(circle at 75% 20%,#315fa8,transparent 32%),linear-gradient(145deg,#071b43,#133978); }
 .artwork-fallback .material-symbols-rounded { font-size: 52px; }
@@ -395,8 +395,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .artwork-device-tabs { display: flex; gap: 5px; margin-bottom: 12px; padding: 4px; border-radius: 10px; background: var(--canvas); }
 .artwork-device-tabs button { height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 9px; font-weight: 800; }
 .artwork-device-tabs button.active { color: #fff; background: var(--navy); }
+.artwork-device-tabs button .material-symbols-rounded:last-child { margin-left: auto; color: var(--green); font-size: 15px; }
+.artwork-device-tabs button:not(.active) .material-symbols-rounded:last-child { color: #90a0bb; }
 .artwork-editor-preview { height: 265px; border-radius: 16px; }
 .artwork-editor-preview.mobile { width: min(260px,100%); height: 320px; margin: 0 auto; }
+.artwork-device-note { display: flex; align-items: center; gap: 9px; margin-top: 11px; padding: 10px 12px; border-radius: 10px; color: var(--blue); background: var(--soft-blue); }
+.artwork-device-note > .material-symbols-rounded { font-size: 20px; }
+.artwork-device-note div { display: grid; gap: 2px; }
+.artwork-device-note strong { font-size: 9px; }
+.artwork-device-note span { color: var(--muted); font-size: 8px; }
 .artwork-upload-button { width: 100%; height: 42px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 16px; border: 1px dashed #aebbd0; border-radius: 11px; color: var(--blue); background: var(--canvas); font-size: 9px; font-weight: 850; cursor: pointer; }
 .artwork-upload-button:disabled { cursor: wait; opacity: .72; }
 .artwork-upload-hint { display: flex; align-items: flex-start; gap: 7px; margin: -7px 0 16px; color: #71809b; font-size: 9px; line-height: 1.45; }
@@ -413,7 +420,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .lesson-card-art > b { position: absolute; z-index: 3; right: 12px; top: 12px; width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--green); }
 .lesson-card-art > b .material-symbols-rounded { font-size: 16px; }
 .lesson-thumb { position: relative; overflow: hidden; }
-.lesson-thumb > img { width: 100%; height: 100%; display: block; }
+.lesson-thumb > img,.lesson-thumb > picture,.lesson-thumb > picture > img { width: 100%; height: 100%; display: block; }
+.practice-card-art > picture,.practice-card-art > picture > img { width: 100%; height: 100%; display: block; }
 .lesson-thumb > i { position: absolute; inset: 0; background: #020a1d; pointer-events: none; }
 .lesson-thumb > span { position: relative; z-index: 2; }
 .lesson-thumb > span .material-symbols-rounded { font-size: 31px; }
