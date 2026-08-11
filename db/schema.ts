@@ -29,6 +29,8 @@ export const courseSections = sqliteTable("course_sections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   moduleId: integer("module_id").notNull(),
   title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("Publicado"),
   position: integer("position").notNull().default(0),
   imageKey: text("cover_key"),
   imageFit: text("cover_fit").notNull().default("cover"),
@@ -42,6 +44,7 @@ export const lessons = sqliteTable("lessons", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sectionId: integer("section_id").notNull(),
   title: text("title").notNull(),
+  description: text("description").notNull().default(""),
   duration: text("duration").notNull().default("10 min"),
   lessonType: text("lesson_type").notNull().default("Vídeo + prática"),
   status: text("status").notNull().default("Publicado"),
@@ -156,3 +159,50 @@ export const practiceSessions = sqliteTable("practice_sessions", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [uniqueIndex("practice_sessions_user_lesson_unique").on(table.userId, table.lessonId)]);
+
+export const videoProgress = sqliteTable("video_progress", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  lessonId: integer("lesson_id").notNull(),
+  positionSeconds: integer("position_seconds").notNull().default(0),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  progressPercent: integer("progress_percent").notNull().default(0),
+  status: text("status").notNull().default("not_started"),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [uniqueIndex("video_progress_user_lesson_unique").on(table.userId, table.lessonId)]);
+
+export const sectionExams = sqliteTable("section_exams", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sectionId: integer("section_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("Rascunho"),
+  passScore: integer("pass_score").notNull().default(70),
+  position: integer("position").notNull().default(1),
+}, (table) => [uniqueIndex("section_exams_section_unique").on(table.sectionId)]);
+
+export const sectionExamQuestions = sqliteTable("section_exam_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  examId: integer("exam_id").notNull(),
+  questionType: text("question_type").notNull().default("choice"),
+  category: text("category").notNull().default("Avaliação"),
+  prompt: text("prompt").notNull(),
+  optionsJson: text("options_json"),
+  correctAnswer: text("correct_answer").notNull(),
+  acceptedAnswersJson: text("accepted_answers_json"),
+  explanation: text("explanation").notNull().default(""),
+  status: text("status").notNull().default("Rascunho"),
+  position: integer("position").notNull().default(0),
+}, (table) => [index("section_exam_questions_exam_status_position_idx").on(table.examId, table.status, table.position)]);
+
+export const sectionExamAttempts = sqliteTable("section_exam_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  examId: integer("exam_id").notNull(),
+  score: integer("score").notNull(),
+  total: integer("total").notNull(),
+  percentage: integer("percentage").notNull(),
+  passed: integer("passed", { mode: "boolean" }).notNull().default(false),
+  answersJson: text("answers_json").notNull().default("[]"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [index("section_exam_attempts_user_exam_idx").on(table.userId, table.examId)]);

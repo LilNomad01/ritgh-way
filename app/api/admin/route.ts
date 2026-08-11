@@ -3,8 +3,8 @@ import { assertSameOrigin, requireAdmin } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
-type Entity = "student" | "module" | "section" | "lesson" | "exercise";
-type ReorderEntity = "section" | "lesson" | "exercise";
+type Entity = "student" | "module" | "section" | "lesson" | "exercise" | "exam" | "examQuestion";
+type ReorderEntity = "section" | "lesson" | "exercise" | "examQuestion";
 
 export async function ensureData() {
   const db = getD1();
@@ -74,6 +74,52 @@ export async function ensureData() {
       updated_at TEXT NOT NULL
     )`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS practice_sessions_user_lesson_unique ON practice_sessions (user_id, lesson_id)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS video_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      lesson_id INTEGER NOT NULL,
+      position_seconds INTEGER NOT NULL DEFAULT 0,
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      progress_percent INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'not_started',
+      updated_at TEXT NOT NULL
+    )`),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS video_progress_user_lesson_unique ON video_progress (user_id, lesson_id)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS section_exams (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      section_id INTEGER NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'Rascunho',
+      pass_score INTEGER NOT NULL DEFAULT 70,
+      position INTEGER NOT NULL DEFAULT 1
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS section_exam_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      exam_id INTEGER NOT NULL,
+      question_type TEXT NOT NULL DEFAULT 'choice',
+      category TEXT NOT NULL DEFAULT 'Avaliação',
+      prompt TEXT NOT NULL,
+      options_json TEXT,
+      correct_answer TEXT NOT NULL,
+      accepted_answers_json TEXT,
+      explanation TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'Rascunho',
+      position INTEGER NOT NULL DEFAULT 0
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS section_exam_questions_exam_status_position_idx ON section_exam_questions (exam_id, status, position)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS section_exam_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      exam_id INTEGER NOT NULL,
+      score INTEGER NOT NULL,
+      total INTEGER NOT NULL,
+      percentage INTEGER NOT NULL,
+      passed INTEGER NOT NULL DEFAULT 0,
+      answers_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS section_exam_attempts_user_exam_idx ON section_exam_attempts (user_id, exam_id)"),
   ]);
 
   const artworkColumns = [
@@ -87,6 +133,16 @@ export async function ensureData() {
     for (const [columnTable, name, declaration] of artworkColumns) {
       if (columnTable === table && !existing.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`).run();
     }
+  }
+  const contentColumns = [
+    ["course_sections", "description", "TEXT NOT NULL DEFAULT ''"],
+    ["course_sections", "status", "TEXT NOT NULL DEFAULT 'Publicado'"],
+    ["lessons", "description", "TEXT NOT NULL DEFAULT ''"],
+  ] as const;
+  for (const table of ["course_sections", "lessons"] as const) {
+    const info = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+    const existing = new Set((info.results as { name: string }[]).map((column) => column.name));
+    for (const [columnTable, name, declaration] of contentColumns) if (columnTable === table && !existing.has(name)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`).run();
   }
   const attemptColumns = await db.prepare("PRAGMA table_info(exercise_attempts)").all<{ name: string }>();
   if (attemptColumns.results.length && !(attemptColumns.results as { name: string }[]).some((column) => column.name === "lesson_id")) {
@@ -161,14 +217,16 @@ export async function GET(request: Request) {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const db = await ensureData();
-    const [students, modules, sections, lessons, exercises] = await Promise.all([
+    const [students, modules, sections, lessons, exercises, exams, examQuestions] = await Promise.all([
       db.prepare("SELECT id, full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students ORDER BY id DESC").all(),
       db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id").all(),
-      db.prepare("SELECT id, module_id AS moduleId, title, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id").all(),
-      db.prepare("SELECT id, section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id").all(),
+      db.prepare("SELECT id, module_id AS moduleId, title, description, status, position, cover_key AS imageKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id").all(),
+      db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id").all(),
       db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, skills_json AS skillsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id").all(),
+      db.prepare("SELECT id, section_id AS sectionId, title, description, status, pass_score AS passScore, position FROM section_exams ORDER BY section_id, position, id").all(),
+      db.prepare("SELECT id, exam_id AS examId, question_type AS questionType, category, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, status, position FROM section_exam_questions ORDER BY exam_id, position, id").all(),
     ]);
-    return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results, exercises: exercises.results });
+    return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results, exercises: exercises.results, exams: exams.results, examQuestions: examQuestions.results });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar os dados." }, { status: 500 });
   }
@@ -194,17 +252,25 @@ export async function POST(request: Request) {
       result = await db.prepare("INSERT INTO course_modules (title, level, description, status, position) VALUES (?, ?, ?, ?, ?)")
         .bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "section") {
-      result = await db.prepare("INSERT INTO course_sections (module_id, title, position) VALUES (?, ?, ?)")
-        .bind(Number(payload.moduleId), clean(payload.title), Number(payload.position) || 0).run();
+      result = await db.prepare("INSERT INTO course_sections (module_id, title, description, status, position) VALUES (?, ?, ?, ?, ?)")
+        .bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "lesson") {
-      result = await db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "exercise") {
       const optionsJson = jsonArray(payload.optionsJson, "Opções");
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+    } else if (payload.entity === "exam") {
+      result = await db.prepare("INSERT INTO section_exams (section_id, title, description, status, pass_score, position) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1).run();
+    } else if (payload.entity === "examQuestion") {
+      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
+      result = await db.prepare("INSERT INTO section_exam_questions (exam_id, question_type, category, prompt, options_json, correct_answer, accepted_answers_json, explanation, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.examId), clean(payload.questionType) || "choice", clean(payload.category) || "Avaliação", clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
@@ -234,15 +300,22 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "module") {
       await db.prepare("UPDATE course_modules SET title = ?, level = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "section") {
-      await db.prepare("UPDATE course_sections SET module_id = ?, title = ?, position = ? WHERE id = ?").bind(Number(payload.moduleId), clean(payload.title), Number(payload.position) || 0, id).run();
+      await db.prepare("UPDATE course_sections SET module_id = ?, title = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "lesson") {
-      await db.prepare("UPDATE lessons SET section_id = ?, title = ?, duration = ?, lesson_type = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, id).run();
+      await db.prepare("UPDATE lessons SET section_id = ?, title = ?, description = ?, duration = ?, lesson_type = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "exercise") {
       const optionsJson = jsonArray(payload.optionsJson, "Opções");
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, status = ?, position = ? WHERE id = ?")
         .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status), Number(payload.position) || 0, id).run();
+    } else if (payload.entity === "exam") {
+      await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1, id).run();
+    } else if (payload.entity === "examQuestion") {
+      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
+      await db.prepare("UPDATE section_exam_questions SET exam_id = ?, question_type = ?, category = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, status = ?, position = ? WHERE id = ?")
+        .bind(Number(payload.examId), clean(payload.questionType), clean(payload.category), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status), Number(payload.position) || 0, id).run();
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
@@ -261,18 +334,18 @@ export async function PATCH(request: Request) {
     const db = await ensureData();
 
     if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
-      const table = payload.entity === "lesson" ? "lessons" : payload.entity === "exercise" ? "lesson_exercises" : "course_sections";
+      const table = payload.entity === "lesson" ? "lessons" : payload.entity === "exercise" ? "lesson_exercises" : payload.entity === "examQuestion" ? "section_exam_questions" : "course_sections";
       const statements = payload.orderedIds.map((id, index) => db.prepare(`UPDATE ${table} SET position = ? WHERE id = ?`).bind(index + 1, Number(id)));
       await db.batch(statements);
       return Response.json({ ok: true });
     }
 
     if (payload.action === "duplicateLesson") {
-      const lesson = await db.prepare("SELECT section_id AS sectionId, title, duration, lesson_type AS lessonType, status, position FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; duration: string; lessonType: string; status: string; position: number }>();
+      const lesson = await db.prepare("SELECT section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number }>();
       if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
       const nextPosition = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM lessons WHERE section_id = ?").bind(lesson.sectionId).first<{ nextPosition: number }>();
-      const result = await db.prepare("INSERT INTO lessons (section_id, title, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, 'Rascunho', ?)")
-        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1).run();
+      const result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, 'Rascunho', ?)")
+        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.description, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1).run();
       return Response.json({ ok: true, id: result.meta.last_row_id });
     }
 
@@ -306,7 +379,7 @@ export async function DELETE(request: Request) {
     const entity = url.searchParams.get("entity") as Entity | null;
     const id = Number(url.searchParams.get("id"));
     const db = await ensureData();
-    const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons", exercise: "lesson_exercises" };
+    const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons", exercise: "lesson_exercises", exam: "section_exams", examQuestion: "section_exam_questions" };
     if (!entity || !tables[entity] || !id) return Response.json({ error: "Dados inválidos." }, { status: 400 });
     if (entity === "student") {
       const student = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
@@ -321,6 +394,8 @@ export async function DELETE(request: Request) {
       }
     } else if (entity === "lesson") {
       await db.batch([db.prepare("DELETE FROM lesson_exercises WHERE lesson_id = ?").bind(id), db.prepare("DELETE FROM lessons WHERE id = ?").bind(id)]);
+    } else if (entity === "exam") {
+      await db.batch([db.prepare("DELETE FROM section_exam_questions WHERE exam_id = ?").bind(id), db.prepare("DELETE FROM section_exams WHERE id = ?").bind(id)]);
     } else {
       await db.prepare(`DELETE FROM ${tables[entity]} WHERE id = ?`).bind(id).run();
     }

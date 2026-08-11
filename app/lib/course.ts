@@ -20,6 +20,8 @@ export type CourseSection = Artwork & {
   id: number;
   moduleId: number;
   title: string;
+  description: string;
+  status: string;
   position: number;
 };
 
@@ -27,6 +29,7 @@ export type CourseLesson = Artwork & {
   id: number;
   sectionId: number;
   title: string;
+  description: string;
   duration: string;
   lessonType: string;
   status: string;
@@ -47,7 +50,16 @@ export type CourseData = {
   modules: CourseModule[];
   sections: CourseSection[];
   lessons: CourseLesson[];
+  academic?: {
+    lessonStates: LessonState[];
+    sectionStates: SectionState[];
+    moduleStates: ModuleState[];
+  };
 };
+
+export type LessonState = { lessonId: number; unlocked: boolean; completed: boolean; videoStatus: "not_started" | "watching" | "completed"; videoPercent: number; videoPosition: number; videoDuration: number; exerciseCount: number; exercisesCompleted: boolean; attemptsCount: number; status: "locked" | "available" | "in_progress" | "completed" };
+export type SectionState = { sectionId: number; unlocked: boolean; completed: boolean; lessonCount: number; completedLessons: number; percent: number; examId?: number; examTitle?: string; examQuestionCount: number; examPassScore?: number; examUnlocked: boolean; examPassed: boolean; examAttempts: number; bestExamPercentage?: number; status: "locked" | "available" | "in_progress" | "completed" };
+export type ModuleState = { moduleId: number; unlocked: boolean; completed: boolean; sectionCount: number; completedSections: number; percent: number; status: "locked" | "available" | "in_progress" | "completed" };
 
 export function slugLesson(lesson: CourseLesson) {
   return lesson.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

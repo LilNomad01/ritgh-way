@@ -1,5 +1,6 @@
 import { ensureData } from "../../../admin/route";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
+import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   const db = await ensureData();
   const lesson = await db.prepare("SELECT l.id, l.title, COUNT(e.id) AS exerciseCount FROM lessons l JOIN lesson_exercises e ON e.lesson_id = l.id AND e.status = 'Publicado' WHERE l.id = ? AND l.status = 'Publicado' GROUP BY l.id LIMIT 1").bind(lessonId).first<{ id: number; title: string; exerciseCount: number }>();
   if (!lesson) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
+  const academic = await computeAcademicState(auth.sub);
+  const lessonState = academic.lessonStates.find((state: LessonAcademicState) => state.lessonId === lessonId);
+  if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula antes de iniciar os exercícios." }, { status: 403 });
   const now = new Date().toISOString();
   const current = await db.prepare("SELECT current_index AS currentIndex, answers_json AS answersJson, score, total, status FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed" }>();
   if (payload.action === "start") {

@@ -10,6 +10,7 @@ import { MaterialIcon } from "./components/MaterialIcon";
 import { Onboarding } from "./components/Onboarding";
 import { PasswordChange } from "./components/PasswordChange";
 import { PracticeHub } from "./components/PracticeHub";
+import { SectionExam } from "./components/SectionExam";
 
 type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
 
@@ -64,7 +65,7 @@ function Achievements() {
 
 type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
 
-export function RightWayApp({ adminEntry = false, initialView = "Início", practiceLessonId, practiceSession = false }: { adminEntry?: boolean; initialView?: AppView; practiceLessonId?: number; practiceSession?: boolean }) {
+export function RightWayApp({ adminEntry = false, initialView = "Início", lessonId, practiceLessonId, practiceSession = false, examSectionId, examSession = false }: { adminEntry?: boolean; initialView?: AppView; lessonId?: number; practiceLessonId?: number; practiceSession?: boolean; examSectionId?: number; examSession?: boolean }) {
   const router = useRouter();
   const [dark, setDark] = useState(() => typeof window !== "undefined" && localStorage.getItem("rightway-theme") === "dark");
   const [active, setActive] = useState<string>(adminEntry ? "Admin" : initialView);
@@ -124,8 +125,9 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", pract
         <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><button className="streak-pill" aria-label="Sequência de cinco dias"><MaterialIcon name="local_fire_department" filled /><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
 
         {active === "Início" && <Dashboard onContinueLesson={() => router.push("/aulas")} onPractice={() => router.push("/praticar")} onNavigate={selectNav} />}
-        {active === "Aulas" && <LessonsLibrary onPracticeLesson={(lessonId) => router.push(`/praticar/${lessonId}`)} />}
-        {active === "Jornada" && <JourneyView onContinue={() => router.push("/aulas")} />}
+        {active === "Aulas" && examSectionId ? <SectionExam sectionId={examSectionId} session={examSession} onBack={() => router.push("/aulas")} onStart={() => router.push(`/prova/${examSectionId}/sessao`)} onNextSection={() => router.push("/aulas")} /> : null}
+        {active === "Aulas" && !examSectionId && <LessonsLibrary lessonId={lessonId} onOpenLesson={(nextLessonId) => router.push(`/aulas/${nextLessonId}`)} onBack={() => router.push("/aulas")} onPracticeLesson={(nextLessonId) => router.push(`/praticar/${nextLessonId}`)} onOpenExam={(sectionId) => router.push(`/prova/${sectionId}`)} />}
+        {active === "Jornada" && <JourneyView onContinue={(nextLesson) => router.push(`/aulas/${nextLesson.id}`)} onOpenExam={(sectionId) => router.push(`/prova/${sectionId}`)} />}
         {active === "Praticar" && <PracticeHub lessonId={practiceLessonId} onOpenDetail={(lessonId) => router.push(`/praticar/${lessonId}`)} onStartSession={(lessonId) => router.push(`/praticar/${lessonId}/sessao`)} onBackToHub={() => router.push("/praticar")} />}
         {active === "Conquistas" && <Achievements />}
         {active === "Admin" && profile.role === "admin" && <><div className="admin-security-banner"><MaterialIcon name="verified_user" filled /><div><strong>Sessão administrativa protegida</strong><small>JWT de curta duração, cookie HTTP-only e renovação segura.</small></div>{profile.mustChangePassword && <button onClick={() => setPasswordChangeOpen(true)}>Trocar senha inicial</button>}</div><AdminPanel /></>}
