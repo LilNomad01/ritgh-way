@@ -84,6 +84,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
       const result = await response.json() as { profile: Profile };
       setProfile(result.profile);
       setShowOnboarding(false);
+      setPasswordChangeOpen(Boolean(result.profile.mustChangePassword));
       setActive(result.profile.role === "admin" && adminEntry ? "Admin" : initialView);
     }).catch(() => setShowOnboarding(true)).finally(() => setCheckingSession(false));
   }, [adminEntry, initialView]);
@@ -101,6 +102,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   function finishOnboarding(nextProfile: Profile) {
     setProfile(nextProfile);
     setShowOnboarding(false);
+    setPasswordChangeOpen(Boolean(nextProfile.mustChangePassword));
     setActive(nextProfile.role === "admin" ? "Admin" : "Início");
   }
 
@@ -133,7 +135,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
         {active === "Jornada" && <JourneyView onContinue={(nextLesson) => router.push(`/aulas/${nextLesson.id}`)} onOpenExam={(sectionId) => router.push(`/prova/${sectionId}`)} />}
         {active === "Praticar" && <PracticeHub lessonId={practiceLessonId} onOpenDetail={(lessonId) => router.push(`/praticar/${lessonId}`)} onStartSession={(lessonId) => router.push(`/praticar/${lessonId}/sessao`)} onBackToHub={() => router.push("/praticar")} />}
         {active === "Conquistas" && <Achievements />}
-        {active === "Admin" && profile.role === "admin" && <><div className="admin-security-banner"><MaterialIcon name="verified_user" filled /><div><strong>Sessão administrativa protegida</strong><small>JWT de curta duração, cookie HTTP-only e renovação segura.</small></div>{profile.mustChangePassword && <button onClick={() => setPasswordChangeOpen(true)}>Trocar senha inicial</button>}</div><AdminPanel /></>}
+        {active === "Admin" && profile.role === "admin" && <><div className="admin-security-banner"><MaterialIcon name="verified_user" filled /><div><strong>Sessão administrativa protegida</strong><small>JWT de curta duração, cookie HTTP-only e renovação segura.</small></div><button onClick={() => setPasswordChangeOpen(true)}>{profile.mustChangePassword ? "Trocar senha inicial" : "Alterar minha senha"}</button></div><AdminPanel /></>}
       </section>
 
       {mobileMenuOpen && <div className="mobile-menu-layer" role="presentation" onClick={() => setMobileMenuOpen(false)}>
@@ -144,7 +146,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
         </aside>
       </div>}
       {practiceSession && practiceLessonId && <ExercisePlayer lessonId={practiceLessonId} onClose={() => router.push(`/praticar/${practiceLessonId}`)} />}
-      {passwordChangeOpen && <PasswordChange onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
+      {passwordChangeOpen && <PasswordChange required={Boolean(profile.mustChangePassword)} onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
     </main>
   );
 }

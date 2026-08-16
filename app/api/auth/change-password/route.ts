@@ -1,4 +1,4 @@
-import { assertSameOrigin, ensureAuthSchema, issueSession, randomSecret, requireAuth, verifyPassword, hashPassword } from "../../../lib/auth";
+import { assertSameOrigin, ensureAuthSchema, issueSession, passwordPolicyError, randomSecret, requireAuth, verifyPassword, hashPassword } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +11,8 @@ export async function POST(request: Request) {
     const payload = await request.json() as { currentPassword?: string; newPassword?: string };
     const currentPassword = payload.currentPassword ?? "";
     const newPassword = payload.newPassword ?? "";
-    if (newPassword.length < 12 || !/[a-z]/.test(newPassword) || !/[A-Z]/.test(newPassword) || !/\d/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
-      return Response.json({ error: "Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo." }, { status: 400 });
-    }
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
 
     const db = await ensureAuthSchema();
     const account = await db.prepare("SELECT password_hash AS passwordHash, password_salt AS passwordSalt, token_version AS tokenVersion FROM user_accounts WHERE id = ? LIMIT 1")

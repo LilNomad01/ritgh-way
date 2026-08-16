@@ -56,3 +56,26 @@ test("loads heavy application areas on demand", async () => {
     assert.match(page, new RegExp(`const ${component} = dynamic`));
   }
 });
+
+test("creates real login accounts for admin-managed students", async () => {
+  const [adminRoute, panel] = await Promise.all([
+    source("app/api/admin/route.ts"),
+    source("app/components/AdminPanel.tsx"),
+  ]);
+  assert.match(adminRoute, /INSERT INTO user_accounts/);
+  assert.match(adminRoute, /action === "resetStudentPassword"/);
+  assert.match(adminRoute, /UPDATE auth_sessions SET revoked_at/);
+  assert.match(panel, /Redefinir senha/);
+  assert.match(panel, /Troca pendente/);
+});
+
+test("versions password hashes and forces first-access password replacement", async () => {
+  const [auth, page] = await Promise.all([
+    source("app/lib/auth.ts"),
+    source("app/page.tsx"),
+  ]);
+  assert.match(auth, /PASSWORD_SCHEME = "pbkdf2-sha256"/);
+  assert.match(auth, /`\$\{PASSWORD_SCHEME\}\$\$\{PASSWORD_ITERATIONS\}\$\$\{hash\}`/);
+  assert.match(auth, /parts\.length === 3/);
+  assert.match(page, /required=\{Boolean\(profile\.mustChangePassword\)\}/);
+});

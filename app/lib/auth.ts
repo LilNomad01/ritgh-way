@@ -7,6 +7,7 @@ const REFRESH_COOKIE = "rw_refresh";
 const ACCESS_TTL_SECONDS = 15 * 60;
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 const PASSWORD_ITERATIONS = 100_000;
+const PASSWORD_SCHEME = "pbkdf2-sha256";
 
 type RuntimeSecrets = {
   AUTH_JWT_SECRET?: string;
@@ -80,14 +81,35 @@ export async function verifyAccessToken(token: string) {
   }
 }
 
-export async function hashPassword(password: string, salt: string) {
+async function derivePasswordHash(password: string, salt: string, iterations: number) {
   const material = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: PASSWORD_ITERATIONS }, material, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations }, material, 256);
   return bytesToBase64Url(new Uint8Array(bits));
 }
 
+export function passwordPolicyError(password: string) {
+  if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+    return "Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo.";
+  }
+  return null;
+}
+
+export async function hashPassword(password: string, salt: string) {
+  const hash = await derivePasswordHash(password, salt, PASSWORD_ITERATIONS);
+  return `${PASSWORD_SCHEME}$${PASSWORD_ITERATIONS}$${hash}`;
+}
+
 export async function verifyPassword(password: string, salt: string, expectedHash: string) {
-  return safeEqual(await hashPassword(password, salt), expectedHash);
+  const parts = expectedHash.split("$");
+  const encoded = parts.length === 3 && parts[0] === PASSWORD_SCHEME;
+  const iterations = encoded ? Number(parts[1]) : PASSWORD_ITERATIONS;
+  const hash = encoded ? parts[2] : expectedHash;
+  if (!Number.isInteger(iterations) || iterations < 10_000 || iterations > PASSWORD_ITERATIONS || !hash) return false;
+  try {
+    return safeEqual(await derivePasswordHash(password, salt, iterations), hash);
+  } catch {
+    return false;
+  }
 }
 
 export function randomSecret(size = 32) {

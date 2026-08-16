@@ -1,4 +1,4 @@
-import { assertSameOrigin, ensureAuthSchema, hashPassword, issueSession, randomSecret } from "../../lib/auth";
+import { assertSameOrigin, ensureAuthSchema, hashPassword, issueSession, passwordPolicyError, randomSecret } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +11,8 @@ export async function POST(request: Request) {
     const email = payload.email?.trim().toLowerCase() ?? "";
     const password = payload.password ?? "";
     if (fullName.length < 2 || !email.includes("@")) return Response.json({ error: "Nome e e-mail válidos são obrigatórios." }, { status: 400 });
-    if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
-      return Response.json({ error: "Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo." }, { status: 400 });
-    }
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
     const db = await ensureAuthSchema();
     const existing = await db.prepare("SELECT id FROM user_accounts WHERE email = ? LIMIT 1").bind(email).first();
     if (existing) return Response.json({ error: "Já existe uma conta com esse e-mail." }, { status: 409 });

@@ -1,5 +1,5 @@
 import { getD1 } from "../../../db";
-import { assertSameOrigin, requireAdmin } from "../../lib/auth";
+import { assertSameOrigin, ensureAuthSchema, hashPassword, passwordPolicyError, randomSecret, requireAdmin } from "../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +7,7 @@ type Entity = "student" | "module" | "section" | "lesson" | "exercise" | "exam" 
 type ReorderEntity = "section" | "lesson" | "exercise" | "examQuestion";
 
 export async function ensureData() {
+  await ensureAuthSchema();
   const db = getD1();
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS students (
@@ -218,7 +219,7 @@ export async function GET(request: Request) {
     if (auth instanceof Response) return auth;
     const db = await ensureData();
     const [students, modules, sections, lessons, exercises, exams, examQuestions] = await Promise.all([
-      db.prepare("SELECT id, full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students ORDER BY id DESC").all(),
+      db.prepare("SELECT students.id, students.full_name AS fullName, students.email, students.level, students.placement_score AS placementScore, students.status, students.created_at AS createdAt, CASE WHEN user_accounts.id IS NULL THEN 0 ELSE 1 END AS hasAccount, COALESCE(user_accounts.must_change_password, 0) AS mustChangePassword, user_accounts.last_login_at AS lastLoginAt FROM students LEFT JOIN user_accounts ON user_accounts.email = students.email AND user_accounts.role = 'student' ORDER BY students.id DESC").all(),
       db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id").all(),
       db.prepare("SELECT id, module_id AS moduleId, title, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id").all(),
       db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_mobile_key AS imageMobileKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id").all(),
@@ -243,11 +244,24 @@ export async function POST(request: Request) {
     if (payload.entity === "student") {
       const name = clean(payload.fullName);
       const email = clean(payload.email).toLowerCase();
+      const password = typeof payload.password === "string" ? payload.password : "";
       if (!name || !email) return Response.json({ error: "Nome e e-mail são obrigatórios." }, { status: 400 });
-      result = await db.prepare("INSERT INTO students (full_name, email, level, placement_score, status, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET full_name = excluded.full_name, level = excluded.level, placement_score = excluded.placement_score, status = excluded.status")
-        .bind(name, email, clean(payload.level) || "Básico", Number(payload.placementScore) || 0, clean(payload.status) || "Ativo", new Date().toISOString()).run();
-      await db.prepare("UPDATE user_accounts SET full_name = ?, level = ?, status = ?, updated_at = ? WHERE email = ? AND role = 'student'")
-        .bind(name, clean(payload.level) || "Básico", clean(payload.status) === "Pausado" ? "paused" : "active", new Date().toISOString(), email).run();
+      const passwordError = passwordPolicyError(password);
+      if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
+      const existingStudent = await db.prepare("SELECT id FROM students WHERE email = ? LIMIT 1").bind(email).first();
+      const existingAccount = await db.prepare("SELECT id FROM user_accounts WHERE email = ? LIMIT 1").bind(email).first();
+      if (existingStudent || existingAccount) return Response.json({ error: "Já existe um cadastro com esse e-mail." }, { status: 409 });
+      const level = clean(payload.level) || "Básico";
+      const status = clean(payload.status) || "Ativo";
+      const score = Number(payload.placementScore) || 0;
+      const salt = randomSecret(24);
+      const passwordHash = await hashPassword(password, salt);
+      const now = new Date().toISOString();
+      const statements = await db.batch([
+        db.prepare("INSERT INTO students (full_name, email, level, placement_score, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(name, email, level, score, status, now),
+        db.prepare("INSERT INTO user_accounts (email, full_name, password_hash, password_salt, role, status, level, placement_score, daily_minutes, token_version, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, 'student', ?, ?, ?, 10, 1, 1, ?, ?)").bind(email, name, passwordHash, salt, status === "Pausado" ? "paused" : "active", level, score, now, now),
+      ]);
+      result = statements[0];
     } else if (payload.entity === "module") {
       result = await db.prepare("INSERT INTO course_modules (title, level, description, status, position) VALUES (?, ?, ?, ?, ?)")
         .bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
@@ -330,8 +344,33 @@ export async function PATCH(request: Request) {
     if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
-    const payload = await request.json() as { action?: string; entity?: ReorderEntity | "module"; orderedIds?: number[]; id?: number; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
+    const payload = await request.json() as { action?: string; entity?: ReorderEntity | "module"; orderedIds?: number[]; id?: number; password?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
     const db = await ensureData();
+
+    if (payload.action === "resetStudentPassword") {
+      const studentId = Number(payload.id);
+      const password = payload.password ?? "";
+      if (!studentId) return Response.json({ error: "Aluno inválido." }, { status: 400 });
+      const passwordError = passwordPolicyError(password);
+      if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
+      const student = await db.prepare("SELECT full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students WHERE id = ? LIMIT 1").bind(studentId).first<{ fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string }>();
+      if (!student) return Response.json({ error: "Aluno não encontrado." }, { status: 404 });
+      const account = await db.prepare("SELECT id, role FROM user_accounts WHERE email = ? LIMIT 1").bind(student.email).first<{ id: number; role: string }>();
+      if (account && account.role !== "student") return Response.json({ error: "Esse e-mail pertence a uma conta administrativa." }, { status: 409 });
+      const salt = randomSecret(24);
+      const passwordHash = await hashPassword(password, salt);
+      const now = new Date().toISOString();
+      if (account) {
+        await db.batch([
+          db.prepare("UPDATE user_accounts SET password_hash = ?, password_salt = ?, token_version = token_version + 1, must_change_password = 1, status = ?, updated_at = ? WHERE id = ?").bind(passwordHash, salt, student.status === "Pausado" ? "paused" : "active", now, account.id),
+          db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, account.id),
+        ]);
+      } else {
+        await db.prepare("INSERT INTO user_accounts (email, full_name, password_hash, password_salt, role, status, level, placement_score, daily_minutes, token_version, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, 'student', ?, ?, ?, 10, 1, 1, ?, ?)")
+          .bind(student.email, student.fullName, passwordHash, salt, student.status === "Pausado" ? "paused" : "active", student.level, student.placementScore, student.createdAt || now, now).run();
+      }
+      return Response.json({ ok: true, message: `A nova senha de ${student.fullName} foi salva com segurança.` });
+    }
 
     if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
       const table = payload.entity === "lesson" ? "lessons" : payload.entity === "exercise" ? "lesson_exercises" : payload.entity === "examQuestion" ? "section_exam_questions" : "course_sections";
