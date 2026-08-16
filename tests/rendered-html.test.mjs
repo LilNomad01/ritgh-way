@@ -1,91 +1,58 @@
 import assert from "node:assert/strict";
-import { access, readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const developmentPreviewMeta =
-  /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
-const templateRoot = new URL("../", import.meta.url);
-const previewRoot = new URL("../app/_sites-preview/", import.meta.url);
+const root = new URL("../", import.meta.url);
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+async function source(path, encoding = "utf8") {
+  return readFile(new URL(path, root), encoding);
 }
 
-test("server-renders the starter loading skeleton", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+function pngSize(buffer) {
+  assert.equal(buffer.toString("ascii", 1, 4), "PNG");
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
 
-  const html = await response.text();
-  assert.match(html, developmentPreviewMeta);
-  assert.match(html, /<title>Your site is taking shape<\/title>/i);
-  assert.match(html, /Building your site/);
-  assert.match(html, /Your site is taking shape/);
-  assert.match(
-    html,
-    /Your first version will appear here automatically when it’s ready\./,
-  );
-  assert.doesNotMatch(html, /Codex/);
-  assert.match(html, /react-loading-skeleton/);
-  assert.match(html, /role="status"/);
+test("defines an Android-installable web app manifest", async () => {
+  const manifest = await source("app/manifest.ts");
+  assert.match(manifest, /id:\s*"\/"/);
+  assert.match(manifest, /start_url:\s*"\/"/);
+  assert.match(manifest, /display:\s*"standalone"/);
+  assert.match(manifest, /app-icon-192\.png/);
+  assert.match(manifest, /sizes:\s*"192x192"/);
+  assert.match(manifest, /app-icon-512\.png/);
+  assert.match(manifest, /sizes:\s*"512x512"/);
+  assert.match(manifest, /purpose:\s*"maskable"/);
 });
 
-test("keeps the loading skeleton scoped and disposable", async () => {
-  const [preview, css, page, layout, packageJson, files] = await Promise.all([
-    readFile(new URL("SkeletonPreview.tsx", previewRoot), "utf8"),
-    readFile(new URL("preview.css", previewRoot), "utf8"),
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readdir(previewRoot),
+test("registers a service worker with offline and safe runtime caching", async () => {
+  const [support, worker, offline] = await Promise.all([
+    source("app/components/PwaSupport.tsx"),
+    source("public/sw.js"),
+    source("public/offline.html"),
   ]);
+  assert.match(support, /beforeinstallprompt/);
+  assert.match(support, /appinstalled/);
+  assert.match(support, /serviceWorker\.register\("\/sw\.js"/);
+  assert.match(worker, /OFFLINE_URL\s*=\s*"\/offline\.html"/);
+  assert.match(worker, /pathname\.startsWith\("\/api\/"\)/);
+  assert.match(offline, /Você está sem conexão/);
+});
 
-  assert.deepEqual(files.sort(), ["SkeletonPreview.tsx", "preview.css"]);
-  assert.match(preview, /from "react-loading-skeleton"/);
-  assert.match(preview, /baseColor="#eceae7"/);
-  assert.match(preview, /highlightColor="#f9f8f6"/);
-  assert.match(preview, /duration=\{2\.8\}/);
-  assert.match(preview, /sites-skeleton-search-placeholder/);
-  assert.match(packageJson, /"react-loading-skeleton": "3\.5\.0"/);
+test("ships Android and Apple icons at their declared sizes", async () => {
+  const [android192, android512, apple180] = await Promise.all([
+    source("public/app-icon-192.png", null),
+    source("public/app-icon-512.png", null),
+    source("public/apple-touch-icon.png", null),
+  ]);
+  assert.deepEqual(pngSize(android192), { width: 192, height: 192 });
+  assert.deepEqual(pngSize(android512), { width: 512, height: 512 });
+  assert.deepEqual(pngSize(apple180), { width: 180, height: 180 });
+});
 
-  const shellIndex = preview.indexOf('className="sites-skeleton-shell"');
-  const statusIndex = preview.indexOf('className="sites-skeleton-status"');
-  assert.ok(shellIndex >= 0 && statusIndex > shellIndex);
-  assert.match(css, /position:\s*fixed/);
-  assert.match(css, /inset:\s*0/);
-  assert.match(css, /opacity:\s*0\.52/);
-  assert.match(css, /prefers-reduced-motion:\s*reduce/);
-  assert.doesNotMatch(css, /#020617|canvas|pets|progress/i);
-  assert.doesNotMatch(
-    preview,
-    /loading-spinner|status-mark|status-progress|canvas|cookie|random/i,
-  );
-
-  assert.match(page, /export const metadata:\s*Metadata/);
-  assert.match(page, /"codex-preview": "development"/);
-  assert.match(page, /<SkeletonPreview \/>/);
-  assert.match(layout, /title:\s*"Starter Project"/);
-  assert.doesNotMatch(layout, /codex-preview|_sites-preview|themeColor|\bViewport\b/);
-  assert.doesNotMatch(css, /(^|\s)(html|body)\s*\{/m);
-
-  await assert.rejects(
-    access(new URL("public/_sites-preview", templateRoot)),
-  );
+test("loads heavy application areas on demand", async () => {
+  const page = await source("app/page.tsx");
+  for (const component of ["AdminPanel", "ExercisePlayer", "JourneyView", "LessonsLibrary", "PracticeHub", "SectionExam"]) {
+    assert.match(page, new RegExp(`const ${component} = dynamic`));
+  }
 });

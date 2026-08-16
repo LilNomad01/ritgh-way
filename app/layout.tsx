@@ -16,9 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "Right Way Online — Sua jornada no inglês",
     description: "Aprenda inglês com exercícios inteligentes, progresso real e acesso seguro no celular.",
-    icons: { icon: "/app-icon.svg", shortcut: "/app-icon.svg", apple: "/app-icon.svg" },
+    icons: { icon: [{ url: "/app-icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/app-icon-512.png", sizes: "512x512", type: "image/png" }], shortcut: "/app-icon-192.png", apple: "/apple-touch-icon.png" },
     manifest: "/manifest.webmanifest",
-    appleWebApp: { capable: true, statusBarStyle: "default", title: "Right Way" },
+    applicationName: "Right Way Online",
+    formatDetection: { telephone: false },
+    appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Right Way" },
     openGraph: {
       title: "Right Way Online — Inglês para a vida real",
       description: "Inglês de verdade. Progresso seguro.",

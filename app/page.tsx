@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AdminPanel } from "./components/AdminPanel";
-import { ExercisePlayer } from "./components/ExercisePlayer";
-import { JourneyView } from "./components/JourneyView";
-import { LessonsLibrary } from "./components/LessonsLibrary";
+import dynamic from "next/dynamic";
 import { MaterialIcon } from "./components/MaterialIcon";
 import { Onboarding } from "./components/Onboarding";
 import { PasswordChange } from "./components/PasswordChange";
-import { PracticeHub } from "./components/PracticeHub";
-import { SectionExam } from "./components/SectionExam";
+import { InstallAppButton } from "./components/PwaSupport";
+
+const AdminPanel = dynamic(() => import("./components/AdminPanel").then((module) => module.AdminPanel));
+const ExercisePlayer = dynamic(() => import("./components/ExercisePlayer").then((module) => module.ExercisePlayer));
+const JourneyView = dynamic(() => import("./components/JourneyView").then((module) => module.JourneyView));
+const LessonsLibrary = dynamic(() => import("./components/LessonsLibrary").then((module) => module.LessonsLibrary));
+const PracticeHub = dynamic(() => import("./components/PracticeHub").then((module) => module.PracticeHub));
+const SectionExam = dynamic(() => import("./components/SectionExam").then((module) => module.SectionExam));
 
 type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
 
@@ -107,7 +110,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
     setActive("Início");
   }
 
-  if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand.png" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
+  if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
   if (showOnboarding) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry ? "login" : "home"} />;
 
   const firstName = profile.fullName.split(" ")[0] || "Aluno";
@@ -116,13 +119,13 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   return (
     <main className={dark ? "app-shell dark" : "app-shell"}>
       <aside className="sidebar" aria-label="Navegação principal">
-        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div>
+        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div>
         <nav className="side-nav"><p>SEU ESPAÇO</p>{navItems.map((item) => <button key={item.label} className={active === item.label ? "nav-item active" : "nav-item"} onClick={() => selectNav(item.label)}><MaterialIcon name={item.icon} filled={active === item.label} />{item.label}</button>)}{profile.role === "admin" && <><p className="nav-section">GESTÃO SEGURA</p><button className={active === "Admin" ? "nav-item active admin-nav" : "nav-item admin-nav"} onClick={() => selectNav("Admin")}><MaterialIcon name="admin_panel_settings" filled={active === "Admin"} />Painel admin</button></>}</nav>
         <div className="side-footer"><div className="plan-row"><span className="mini-avatar">{initials}</span><div><strong>{profile.fullName}</strong><small>{profile.role === "admin" ? "Administrador raiz" : `Plano ${profile.level}`}</small></div><button onClick={logout} aria-label="Sair da conta">↪</button></div></div>
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><button className="streak-pill" aria-label="Sequência de cinco dias"><MaterialIcon name="local_fire_department" filled /><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
+        <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><InstallAppButton variant="compact" /><button className="streak-pill" aria-label="Sequência de cinco dias"><MaterialIcon name="local_fire_department" filled /><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
 
         {active === "Início" && <Dashboard onContinueLesson={() => router.push("/aulas")} onPractice={() => router.push("/praticar")} onNavigate={selectNav} />}
         {active === "Aulas" && examSectionId ? <SectionExam sectionId={examSectionId} session={examSession} onBack={() => router.push("/aulas")} onStart={() => router.push(`/prova/${examSectionId}/sessao`)} onNextSection={() => router.push("/aulas")} /> : null}
@@ -135,7 +138,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
 
       {mobileMenuOpen && <div className="mobile-menu-layer" role="presentation" onClick={() => setMobileMenuOpen(false)}>
         <aside className="mobile-drawer" role="dialog" aria-modal="true" aria-label="Menu de navegação" onClick={(event) => event.stopPropagation()}>
-          <div className="mobile-drawer-head"><div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand.png" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div><button onClick={() => setMobileMenuOpen(false)} aria-label="Fechar menu"><MaterialIcon name="close" /></button></div>
+          <div className="mobile-drawer-head"><div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><span>RIGHT WAY</span><small>ONLINE</small></div></div><button onClick={() => setMobileMenuOpen(false)} aria-label="Fechar menu"><MaterialIcon name="close" /></button></div>
           <nav>{navItems.map((item) => <button key={item.label} className={active === item.label ? "active" : ""} onClick={() => selectNav(item.label)}><MaterialIcon name={item.icon} filled={active === item.label} /><span>{item.label}</span><MaterialIcon name="chevron_right" /></button>)}{profile.role === "admin" && <button className={active === "Admin" ? "active admin" : "admin"} onClick={() => selectNav("Admin")}><MaterialIcon name="admin_panel_settings" filled /><span>Painel admin</span><MaterialIcon name="chevron_right" /></button>}</nav>
           <div className="mobile-drawer-account"><span>{initials}</span><div><strong>{profile.fullName}</strong><small>{profile.role === "admin" ? "Administrador raiz" : profile.level}</small></div><button onClick={logout} aria-label="Sair da conta"><MaterialIcon name="logout" /></button></div>
         </aside>

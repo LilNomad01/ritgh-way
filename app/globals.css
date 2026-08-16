@@ -24,10 +24,10 @@
 }
 
 * { box-sizing: border-box; }
-html { background: var(--canvas); }
-body { margin: 0; color: var(--ink); background: var(--canvas); font-family: Arial, Helvetica, sans-serif; }
+html { min-height: 100%; background: var(--canvas); }
+body { min-height: 100%; margin: 0; color: var(--ink); background: var(--canvas); font-family: Arial, Helvetica, sans-serif; overscroll-behavior-y: none; }
 button { font: inherit; }
-button, a { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 
 .app-shell { min-height: 100vh; display: flex; background: var(--canvas); transition: color .25s ease, background .25s ease; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; width: 232px; display: flex; flex-direction: column; color: #fff; background: linear-gradient(175deg, #0a214f 0%, #061533 78%); box-shadow: 12px 0 40px rgba(8, 27, 67, .09); }
@@ -193,7 +193,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .question-count { display: flex; justify-content: space-between; margin-bottom: 24px; }.question-count span { color: var(--red); font-size: 9px; font-weight: 950; letter-spacing: 1.4px; }.question-count small { color: #8995a8; font-size: 9px; }.placement-flow .flow-kicker { color: #7a889d; }.placement-flow > h1 { min-height: 84px; font-size: clamp(28px,4vw,36px); }.placement-flow-options { display: grid; gap: 10px; margin: 25px 0 23px; }.placement-flow-options button { min-height: 62px; display: grid; grid-template-columns: 39px 1fr 24px; align-items: center; gap: 12px; padding: 9px 13px; border: 2px solid #e0e6ee; border-bottom-width: 4px; border-radius: 14px; color: var(--navy); background: #fff; font-size: 12px; font-weight: 750; text-align: left; cursor: pointer; }.placement-flow-options button > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; color: #6f7e93; background: #f0f3f7; font-size: 10px; font-weight: 900; }.placement-flow-options i { color: transparent; font-size: 16px; font-style: normal; }.placement-flow-options button.selected { border-color: var(--red); background: #fff5f6; }.placement-flow-options button.selected > span { color: #fff; background: var(--red); }.placement-flow-options button.selected i { color: var(--red); }.test-note { display: block; margin-top: 12px; color: #929daf; font-size: 8px; text-align: center; }
 .result-celebration { display: flex; align-items: center; justify-content: center; gap: 24px; margin-bottom: 22px; }.result-celebration > i { color: #f3b526; font-size: 24px; font-style: normal; }.result-ring { width: 110px; height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 11px solid #e5ebf4; border-top-color: var(--red); border-right-color: var(--red); border-radius: 50%; box-shadow: 0 10px 24px rgba(22,48,88,.08); }.result-ring span { color: var(--navy); font-size: 32px; font-weight: 950; }.result-ring small { color: #8a96a8; font-size: 7px; font-weight: 900; letter-spacing: 1px; }.result-flow > h1 { color: var(--red); font-size: 41px; }.path-preview { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 25px 0 22px; padding: 14px 16px; border: 2px solid #dfe6ef; border-bottom-width: 4px; border-radius: 14px; background: #fff; text-align: left; }.path-preview > div { display: flex; align-items: center; gap: 11px; }.path-preview > div > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--red); font-size: 11px; font-weight: 900; }.path-preview p { display: flex; flex-direction: column; gap: 3px; margin: 0; }.path-preview small { color: #8793a6; font-size: 7px; letter-spacing: .8px; }.path-preview strong { color: var(--navy); font-size: 11px; }.path-preview > b { padding: 7px 9px; border-radius: 8px; color: var(--blue); background: #edf3ff; font-size: 8px; white-space: nowrap; }
 .login-shell .flow-header { grid-template-columns: 42px 1fr 42px; justify-content: stretch; }.login-shell .flow-header .entry-brand { justify-self: center; }.login-card { width: min(460px,calc(100% - 32px)); margin: 55px auto; padding: 38px; border: 2px solid #e3e8ef; border-bottom-width: 5px; border-radius: 21px; background: #fff; text-align: center; }.flow-mascot.small { height: 82px; justify-content: center; }.flow-mascot.small .entry-eagle { width: 82px; height: 82px; }.flow-mascot.small .entry-eagle img { width: 276px; left: -30px; top: -15px; }.login-card label { text-align: left; }.login-error { margin: -3px 0 13px; padding: 10px; border-radius: 9px; color: #b01931; background: #fff0f2; font-size: 9px; }.flow-divider { display: flex; align-items: center; gap: 9px; margin: 18px 0 8px; color: #a0aabc; font-size: 8px; }.flow-divider span { height: 1px; flex: 1; background: #e7ebf1; }
-.security-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 14px; padding: 9px; border-radius: 9px; color: #30745f; background: #eef9f5; font-size: 8px; }.security-note span { font-size: 13px; }.install-app { margin-top: 12px; text-align: center; }.install-app button { border: 0; color: var(--blue); background: transparent; font-size: 9px; font-weight: 900; letter-spacing: .5px; cursor: pointer; }.install-app button span { margin-right: 5px; }.install-app small { display: block; margin: 8px auto 0; padding: 8px 10px; border-radius: 8px; color: #6f7d91; background: #f1f5fa; font-size: 8px; line-height: 1.4; }
+.security-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 14px; padding: 9px; border-radius: 9px; color: #30745f; background: #eef9f5; font-size: 8px; }.security-note span { font-size: 13px; }.install-app { margin-top: 12px; text-align: center; }.install-app button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 17px; border: 1px solid #dbe4f1; border-radius: 12px; color: var(--blue); background: #fff; box-shadow: 0 7px 20px rgba(7,27,67,.07); font-size: 9px; font-weight: 900; letter-spacing: .5px; cursor: pointer; }.install-app button span { font-size: 16px; }.install-app small { display: block; max-width: 340px; margin: 8px auto 0; padding: 8px 10px; border-radius: 8px; color: #6f7d91; background: #f1f5fa; font-size: 8px; line-height: 1.4; }.install-app.installed { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--green); font-size: 8px; }.install-app.compact { position: relative; display: none; margin: 0; }.install-app.compact button { min-height: 36px; padding: 0 12px; border-color: #d9e3f2; border-radius: 18px; box-shadow: none; white-space: nowrap; }.install-app.compact small { position: absolute; z-index: 50; top: 43px; right: 0; width: 250px; margin: 0; padding: 11px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 30px rgba(7,27,67,.16); text-align: left; }
 .app-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--navy); background: #f8fafc; }.app-loading .brand-icon { position: relative; width: 62px; height: 62px; overflow: hidden; border-radius: 17px; background: var(--navy); }.app-loading .brand-icon img { position: absolute; width: 270px; max-width: none; left: -167px; top: -19px; }.app-loading strong { font-size: 12px; font-style: italic; letter-spacing: 1px; }.app-loading > span { width: 48px; height: 5px; overflow: hidden; border-radius: 5px; background: #e1e7ef; }.app-loading > span::after { content: ""; display: block; width: 55%; height: 100%; border-radius: inherit; background: var(--red); animation: loadbar .9s ease-in-out infinite alternate; }@keyframes loadbar { to { transform: translateX(42px); } }
 .admin-security-banner { max-width: 1380px; display: flex; align-items: center; gap: 11px; margin: 22px auto -8px; padding: 11px clamp(24px,4vw,58px); color: #d9e5fa; background: linear-gradient(90deg,#071b43,#10366f); }.admin-security-banner > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 9px; background: rgba(255,255,255,.1); }.admin-security-banner > div { display: flex; flex: 1; flex-direction: column; gap: 3px; }.admin-security-banner strong { font-size: 9px; }.admin-security-banner small { color: #8fa2c5; font-size: 7px; }.admin-security-banner button { margin-left: auto; height: 34px; padding: 0 13px; border: 0; border-radius: 8px; color: #fff; background: var(--red); font-size: 8px; font-weight: 850; cursor: pointer; }
 
@@ -242,6 +242,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .sidebar { display: none; }
   .workspace { width: 100%; margin-left: 0; }
   .topbar { position: sticky; top: 0; z-index: 30; height: 74px; padding: 0 18px; }
+  .install-app.compact { display: block; }
   .mobile-brand { display: flex; align-items: center; gap: 7px; color: var(--navy); font-size: 11px; font-style: italic; }
   .brand-icon { position: relative; width: 38px; height: 38px; overflow: hidden; border-radius: 10px; background: var(--navy); }
   .brand-icon img { position: absolute; width: 168px; max-width: none; left: -104px; top: -12px; }
@@ -273,7 +274,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (max-width: 580px) {
-  .top-actions { gap: 7px; }.avatar { display: none; }
+  .top-actions { gap: 6px; }.avatar { display: none; }.install-app.compact button { width: 38px; padding: 0; font-size: 0; }.install-app.compact button span { margin: 0; font-size: 18px; }
   .continue-card h2 { font-size: 29px; }.lesson-copy { font-size: 12px; }
   .stats-grid { gap: 9px; }.stat-card { min-height: 104px; padding: 14px 11px; gap: 9px; }.stat-icon { width: 31px; height: 31px; }.stat-card strong { font-size: 14px; }.stat-card p { font-size: 7px; }
   .section-heading { align-items: start; padding: 21px 18px 14px; }.section-heading button { width: 75px; text-align: right; }
@@ -427,6 +428,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .lesson-thumb > span .material-symbols-rounded { font-size: 31px; }
 .student-lesson-copy button { display: inline-flex; align-items: center; gap: 3px; }
 .student-lesson-copy button .material-symbols-rounded { font-size: 14px; }
+.course-level-rail,.practice-level-block,.section-manager-card { content-visibility: auto; contain-intrinsic-size: auto 700px; }
+
+@media (display-mode: standalone) and (max-width: 860px) {
+  .topbar { height: calc(74px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); }
+  .mobile-drawer { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+}
+
+@media (display-mode: standalone) and (max-width: 580px) {
+  .topbar { height: calc(68px + env(safe-area-inset-top)); }
+}
 
 @media (max-width: 1120px) {
   .module-visual-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
