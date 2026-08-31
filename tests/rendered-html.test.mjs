@@ -79,3 +79,14 @@ test("versions password hashes and forces first-access password replacement", as
   assert.match(auth, /parts\.length === 3/);
   assert.match(page, /required=\{Boolean\(profile\.mustChangePassword\)\}/);
 });
+
+test("keeps schema maintenance out of request hot paths", async () => {
+  const [auth, admin] = await Promise.all([
+    source("app/lib/auth.ts"),
+    source("app/api/admin/route.ts"),
+  ]);
+  assert.doesNotMatch(auth, /CREATE TABLE|PRAGMA table_info|ALTER TABLE/);
+  assert.doesNotMatch(admin, /CREATE TABLE|PRAGMA table_info|ALTER TABLE/);
+  assert.match(auth, /return getD1\(\)/);
+  assert.match(admin, /const db = getD1\(\)/);
+});

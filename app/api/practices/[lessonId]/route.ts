@@ -1,4 +1,4 @@
-import { ensureData } from "../../admin/route";
+import { getD1 } from "../../../../db";
 import { requireAuth } from "../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 
@@ -17,7 +17,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   if (!lessonId) return Response.json({ error: "Prática inválida." }, { status: 400 });
-  const db = await ensureData();
+  const db = getD1();
   const practice = await db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType,
     l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
     l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,

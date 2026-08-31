@@ -1,4 +1,4 @@
-import { ensureData } from "../../admin/route";
+import { getD1 } from "../../../../db";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
 
@@ -10,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   if (!lessonId) return Response.json({ error: "Aula inválida." }, { status: 400 });
-  const db = await ensureData();
+  const db = getD1();
   const [lesson, academic] = await Promise.all([
     db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.description, l.duration, l.lesson_type AS lessonType,
       l.video_key AS videoKey, l.video_name AS videoName, l.video_size AS videoSize,

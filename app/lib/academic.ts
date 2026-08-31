@@ -53,15 +53,15 @@ type ExamAttemptRow = { examId: number; attemptsCount: number; passed: number; b
 
 export async function computeAcademicState(userId: number): Promise<{ lessonStates: LessonAcademicState[]; sectionStates: SectionAcademicState[]; moduleStates: ModuleAcademicState[] }> {
   const db = getD1();
-  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, examAttemptResult] = await Promise.all([
-    db.prepare("SELECT id, position FROM course_modules WHERE status = 'Publicado' ORDER BY position, id").all<ModuleRow>(),
-    db.prepare("SELECT id, module_id AS moduleId, position FROM course_sections WHERE status = 'Publicado' ORDER BY module_id, position, id").all<SectionRow>(),
-    db.prepare("SELECT id, section_id AS sectionId, position FROM lessons WHERE status = 'Publicado' ORDER BY section_id, position, id").all<LessonRow>(),
-    db.prepare("SELECT lesson_id AS lessonId, status, progress_percent AS progressPercent, position_seconds AS positionSeconds, duration_seconds AS durationSeconds FROM video_progress WHERE user_id = ?").bind(userId).all<VideoRow>(),
-    db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS attemptsCount FROM exercise_attempts WHERE user_id = ? AND lesson_id IS NOT NULL GROUP BY lesson_id").bind(userId).all<AttemptRow>(),
-    db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS exerciseCount FROM lesson_exercises WHERE status = 'Publicado' GROUP BY lesson_id").all<ExerciseCountRow>(),
-    db.prepare("SELECT e.id, e.section_id AS sectionId, e.title, e.pass_score AS passScore, COUNT(q.id) AS questionCount FROM section_exams e JOIN section_exam_questions q ON q.exam_id = e.id AND q.status = 'Publicado' WHERE e.status = 'Publicado' GROUP BY e.id ORDER BY e.position, e.id").all<ExamRow>(),
-    db.prepare("SELECT exam_id AS examId, COUNT(*) AS attemptsCount, MAX(passed) AS passed, MAX(percentage) AS bestPercentage FROM section_exam_attempts WHERE user_id = ? GROUP BY exam_id").bind(userId).all<ExamAttemptRow>(),
+  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, examAttemptResult] = await db.batch([
+    db.prepare("SELECT id, position FROM course_modules WHERE status = 'Publicado' ORDER BY position, id"),
+    db.prepare("SELECT id, module_id AS moduleId, position FROM course_sections WHERE status = 'Publicado' ORDER BY module_id, position, id"),
+    db.prepare("SELECT id, section_id AS sectionId, position FROM lessons WHERE status = 'Publicado' ORDER BY section_id, position, id"),
+    db.prepare("SELECT lesson_id AS lessonId, status, progress_percent AS progressPercent, position_seconds AS positionSeconds, duration_seconds AS durationSeconds FROM video_progress WHERE user_id = ?").bind(userId),
+    db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS attemptsCount FROM exercise_attempts WHERE user_id = ? AND lesson_id IS NOT NULL GROUP BY lesson_id").bind(userId),
+    db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS exerciseCount FROM lesson_exercises WHERE status = 'Publicado' GROUP BY lesson_id"),
+    db.prepare("SELECT e.id, e.section_id AS sectionId, e.title, e.pass_score AS passScore, COUNT(q.id) AS questionCount FROM section_exams e JOIN section_exam_questions q ON q.exam_id = e.id AND q.status = 'Publicado' WHERE e.status = 'Publicado' GROUP BY e.id ORDER BY e.position, e.id"),
+    db.prepare("SELECT exam_id AS examId, COUNT(*) AS attemptsCount, MAX(passed) AS passed, MAX(percentage) AS bestPercentage FROM section_exam_attempts WHERE user_id = ? GROUP BY exam_id").bind(userId),
   ]);
   const modules = moduleResult.results as ModuleRow[];
   const sections = sectionResult.results as SectionRow[];

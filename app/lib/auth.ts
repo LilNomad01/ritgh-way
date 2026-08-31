@@ -165,86 +165,8 @@ export function assertSameOrigin(request: Request) {
 }
 
 export async function ensureAuthSchema() {
-  const db = getD1();
-  await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS students (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      full_name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      level TEXT NOT NULL DEFAULT 'Básico',
-      placement_score INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'Ativo',
-      created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS user_accounts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      full_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      password_salt TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'student',
-      status TEXT NOT NULL DEFAULT 'active',
-      level TEXT NOT NULL DEFAULT 'Começando do zero',
-      placement_score INTEGER NOT NULL DEFAULT 0,
-      goal TEXT,
-      daily_minutes INTEGER NOT NULL DEFAULT 10,
-      token_version INTEGER NOT NULL DEFAULT 1,
-      must_change_password INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_login_at TEXT
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS auth_sessions (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      refresh_token_hash TEXT NOT NULL,
-      ip_hash TEXT,
-      user_agent TEXT,
-      expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      revoked_at TEXT
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS login_attempts (
-      identifier TEXT PRIMARY KEY,
-      failed_count INTEGER NOT NULL DEFAULT 0,
-      locked_until TEXT,
-      updated_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS placement_attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      score INTEGER NOT NULL,
-      total_questions INTEGER NOT NULL,
-      resulting_level TEXT NOT NULL,
-      answers_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS lesson_progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      lesson_id INTEGER,
-      lesson_slug TEXT NOT NULL,
-      progress_percent INTEGER NOT NULL DEFAULT 0,
-      best_score INTEGER NOT NULL DEFAULT 0,
-      attempts_count INTEGER NOT NULL DEFAULT 0,
-      completed_at TEXT,
-      updated_at TEXT NOT NULL
-    )`),
-    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS lesson_progress_user_slug_unique ON lesson_progress (user_id, lesson_slug)"),
-    db.prepare(`CREATE TABLE IF NOT EXISTS exercise_attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      lesson_id INTEGER,
-      lesson_slug TEXT NOT NULL,
-      score INTEGER NOT NULL,
-      total INTEGER NOT NULL,
-      answers_json TEXT,
-      created_at TEXT NOT NULL
-    )`),
-  ]);
-  const attemptColumns = await db.prepare("PRAGMA table_info(exercise_attempts)").all<{ name: string }>();
-  if (!(attemptColumns.results as { name: string }[]).some((column) => column.name === "lesson_id")) await db.prepare("ALTER TABLE exercise_attempts ADD COLUMN lesson_id INTEGER").run();
-  return db;
+  // Schema changes are deployed from versioned migrations, never from request handlers.
+  return getD1();
 }
 
 export async function issueSession(request: Request, account: { id: number; email: string; fullName: string; role: "admin" | "student"; tokenVersion: number }) {

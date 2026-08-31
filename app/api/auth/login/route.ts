@@ -12,13 +12,16 @@ export async function POST(request: Request) {
     const db = await ensureAuthSchema();
     const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "local";
     const identifier = await hashToken(`${email}:${ip}`);
-    const attempt = await db.prepare("SELECT failed_count AS failedCount, locked_until AS lockedUntil FROM login_attempts WHERE identifier = ?").bind(identifier).first<{ failedCount: number; lockedUntil: string | null }>();
+    type Account = { id: number; email: string; fullName: string; passwordHash: string; passwordSalt: string; role: "admin" | "student"; status: string; level: string; placementScore: number; tokenVersion: number; mustChangePassword: number };
+    const [attempt, initialAccount] = await Promise.all([
+      db.prepare("SELECT failed_count AS failedCount, locked_until AS lockedUntil FROM login_attempts WHERE identifier = ?").bind(identifier).first<{ failedCount: number; lockedUntil: string | null }>(),
+      db.prepare("SELECT id, email, full_name AS fullName, password_hash AS passwordHash, password_salt AS passwordSalt, role, status, level, placement_score AS placementScore, token_version AS tokenVersion, must_change_password AS mustChangePassword FROM user_accounts WHERE email = ? LIMIT 1").bind(email).first<Account>(),
+    ]);
     if (attempt?.lockedUntil && new Date(attempt.lockedUntil).getTime() > Date.now()) {
       return Response.json({ error: "Muitas tentativas. Aguarde 15 minutos antes de tentar novamente." }, { status: 429 });
     }
 
-    type Account = { id: number; email: string; fullName: string; passwordHash: string; passwordSalt: string; role: "admin" | "student"; status: string; level: string; placementScore: number; tokenVersion: number; mustChangePassword: number };
-    let account = await db.prepare("SELECT id, email, full_name AS fullName, password_hash AS passwordHash, password_salt AS passwordSalt, role, status, level, placement_score AS placementScore, token_version AS tokenVersion, must_change_password AS mustChangePassword FROM user_accounts WHERE email = ? LIMIT 1").bind(email).first<Account>();
+    let account = initialAccount;
     const root = rootAdminConfig();
 
     if (!account && email === root.email && root.passwordHash && root.passwordSalt && await verifyPassword(password, root.passwordSalt, root.passwordHash)) {
@@ -37,8 +40,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "E-mail ou senha incorretos." }, { status: 401 });
     }
 
-    await db.prepare("DELETE FROM login_attempts WHERE identifier = ?").bind(identifier).run();
-    await db.prepare("UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE id = ?").bind(new Date().toISOString(), new Date().toISOString(), account.id).run();
+    const now = new Date().toISOString();
+    await db.batch([
+      db.prepare("DELETE FROM login_attempts WHERE identifier = ?").bind(identifier),
+      db.prepare("UPDATE user_accounts SET last_login_at = ?, updated_at = ? WHERE id = ?").bind(now, now, account.id),
+    ]);
     const session = await issueSession(request, account);
     const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
     for (const cookie of session.cookies) headers.append("set-cookie", cookie);

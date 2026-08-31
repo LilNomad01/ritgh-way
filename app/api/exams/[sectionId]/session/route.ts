@@ -1,4 +1,4 @@
-import { ensureData } from "../../../admin/route";
+import { getD1 } from "../../../../../db";
 import { computeAcademicState, type SectionAcademicState } from "../../../../lib/academic";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 
@@ -19,7 +19,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
   const { sectionId: rawSectionId } = await params;
   const sectionId = Number(rawSectionId);
   const payload = await request.json() as { answers?: Record<string, string> };
-  const db = await ensureData();
+  const db = getD1();
   const [exam, academic] = await Promise.all([
     db.prepare("SELECT id, title, pass_score AS passScore FROM section_exams WHERE section_id = ? AND status = 'Publicado' LIMIT 1").bind(sectionId).first<{ id: number; title: string; passScore: number }>(),
     computeAcademicState(auth.sub),

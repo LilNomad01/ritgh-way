@@ -86,7 +86,7 @@ export async function POST(request: Request) {
         if (!exists) return Response.json({ error: "Conteúdo não encontrado." }, { status: 404 });
         const key = `covers/${configuration.entity}/${id}/${configuration.device}/${crypto.randomUUID()}-${safeName(payload.name ?? "capa.webp")}`;
         const multipart = await bucket.createMultipartUpload?.(key, {
-          httpMetadata: { contentType, cacheControl: "private, max-age=86400" },
+          httpMetadata: { contentType, cacheControl: "private, max-age=31536000, immutable" },
           customMetadata: { originalName: safeName(payload.name ?? "capa.webp") },
         });
         if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
@@ -137,6 +137,7 @@ export async function GET(request: Request) {
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set("etag", object.httpEtag);
-  headers.set("cache-control", "private, max-age=86400");
+  headers.set("cache-control", "private, max-age=31536000, immutable");
+  if (request.headers.get("if-none-match") === object.httpEtag) return new Response(null, { status: 304, headers });
   return new Response(object.body, { headers });
 }

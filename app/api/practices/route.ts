@@ -1,4 +1,4 @@
-import { ensureData } from "../admin/route";
+import { getD1 } from "../../../db";
 import { requireAuth } from "../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../lib/academic";
 
@@ -15,23 +15,26 @@ function stringList(value?: string) {
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof Response) return auth;
-  const db = await ensureData();
-  const [modules, sections, practiceRows, attempts, sessions, academic] = await Promise.all([
-    db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules WHERE status = 'Publicado' ORDER BY position, id").all(),
-    db.prepare("SELECT s.id, s.module_id AS moduleId, s.title, s.position, s.cover_key AS imageKey, s.cover_mobile_key AS imageMobileKey, s.cover_fit AS imageFit, s.cover_zoom AS imageZoom, s.cover_overlay AS imageOverlay, s.cover_position_x AS imagePositionX, s.cover_position_y AS imagePositionY FROM course_sections s JOIN course_modules m ON m.id = s.module_id WHERE m.status = 'Publicado' ORDER BY s.module_id, s.position, s.id").all(),
-    db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType,
-      l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
-      l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
-      m.level, m.title AS moduleTitle, s.title AS sectionTitle, COUNT(e.id) AS exerciseCount,
-      GROUP_CONCAT(e.skills_json, '||') AS skillsJson
-      FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id
-      JOIN lesson_exercises e ON e.lesson_id = l.id AND e.status = 'Publicado'
-      WHERE l.status = 'Publicado' AND m.status = 'Publicado'
-      GROUP BY l.id ORDER BY m.position, s.position, l.position, l.id`).all<PracticeRow>(),
-    db.prepare("SELECT lesson_id AS lessonId, score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? AND lesson_id IS NOT NULL ORDER BY created_at DESC").bind(auth.sub).all<AttemptRow>(),
-    db.prepare("SELECT lesson_id AS lessonId, current_index AS currentIndex, status FROM practice_sessions WHERE user_id = ?").bind(auth.sub).all<SessionRow>(),
+  const db = getD1();
+  const [practiceData, academic] = await Promise.all([
+    db.batch([
+      db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules WHERE status = 'Publicado' ORDER BY position, id"),
+      db.prepare("SELECT s.id, s.module_id AS moduleId, s.title, s.position, s.cover_key AS imageKey, s.cover_mobile_key AS imageMobileKey, s.cover_fit AS imageFit, s.cover_zoom AS imageZoom, s.cover_overlay AS imageOverlay, s.cover_position_x AS imagePositionX, s.cover_position_y AS imagePositionY FROM course_sections s JOIN course_modules m ON m.id = s.module_id WHERE m.status = 'Publicado' ORDER BY s.module_id, s.position, s.id"),
+      db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType,
+        l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
+        l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
+        m.level, m.title AS moduleTitle, s.title AS sectionTitle, COUNT(e.id) AS exerciseCount,
+        GROUP_CONCAT(e.skills_json, '||') AS skillsJson
+        FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id
+        JOIN lesson_exercises e ON e.lesson_id = l.id AND e.status = 'Publicado'
+        WHERE l.status = 'Publicado' AND m.status = 'Publicado'
+        GROUP BY l.id ORDER BY m.position, s.position, l.position, l.id`),
+      db.prepare("SELECT lesson_id AS lessonId, score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? AND lesson_id IS NOT NULL ORDER BY created_at DESC").bind(auth.sub),
+      db.prepare("SELECT lesson_id AS lessonId, current_index AS currentIndex, status FROM practice_sessions WHERE user_id = ?").bind(auth.sub),
+    ]),
     computeAcademicState(auth.sub),
   ]);
+  const [modules, sections, practiceRows, attempts, sessions] = practiceData;
   const sessionByLesson = new Map((sessions.results as SessionRow[]).map((session) => [session.lessonId, session]));
   const attemptsByLesson = new Map<number, AttemptRow[]>();
   for (const attempt of attempts.results as AttemptRow[]) attemptsByLesson.set(attempt.lessonId, [...(attemptsByLesson.get(attempt.lessonId) ?? []), attempt]);

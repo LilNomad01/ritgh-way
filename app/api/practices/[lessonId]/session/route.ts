@@ -1,4 +1,4 @@
-import { ensureData } from "../../../admin/route";
+import { getD1 } from "../../../../../db";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
 
@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   const payload = await request.json() as { action?: "start" | "progress" | "complete"; reset?: boolean; answers?: string[]; score?: number; total?: number; currentIndex?: number };
-  const db = await ensureData();
+  const db = getD1();
   const lesson = await db.prepare("SELECT l.id, l.title, COUNT(e.id) AS exerciseCount FROM lessons l JOIN lesson_exercises e ON e.lesson_id = l.id AND e.status = 'Publicado' WHERE l.id = ? AND l.status = 'Publicado' GROUP BY l.id LIMIT 1").bind(lessonId).first<{ id: number; title: string; exerciseCount: number }>();
   if (!lesson) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
   const academic = await computeAcademicState(auth.sub);

@@ -1,4 +1,4 @@
-import { ensureData } from "../../admin/route";
+import { getD1 } from "../../../../db";
 import { computeAcademicState, type SectionAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
 
@@ -9,7 +9,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ sect
   if (auth instanceof Response) return auth;
   const { sectionId: rawSectionId } = await params;
   const sectionId = Number(rawSectionId);
-  const db = await ensureData();
+  const db = getD1();
   const [exam, academic] = await Promise.all([
     db.prepare(`SELECT e.id, e.section_id AS sectionId, e.title, e.description, e.pass_score AS passScore,
       s.title AS sectionTitle, m.title AS moduleTitle, m.level

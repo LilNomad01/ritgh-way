@@ -1,4 +1,4 @@
-import { ensureData } from "../../../admin/route";
+import { getD1 } from "../../../../../db";
 import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 
@@ -11,7 +11,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   const payload = await request.json() as { positionSeconds?: number; durationSeconds?: number; ended?: boolean };
-  const db = await ensureData();
+  const db = getD1();
   const [lesson, academic] = await Promise.all([
     db.prepare("SELECT id, video_key AS videoKey FROM lessons WHERE id = ? AND status = 'Publicado' LIMIT 1").bind(lessonId).first<{ id: number; videoKey?: string }>(),
     computeAcademicState(auth.sub),
