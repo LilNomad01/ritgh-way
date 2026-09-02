@@ -32,6 +32,21 @@ const week = [
 
 const demoProfile: Profile = { fullName: "Alex Martins", email: "alex@rightway.com", level: "Intermediário", placementScore: 6 };
 
+async function fetchSessionProfile() {
+  const sessionResponse = await fetch("/api/auth/session", { cache: "no-store", credentials: "same-origin" });
+  if (sessionResponse.ok) return sessionResponse.json() as Promise<{ profile: Profile }>;
+
+  if (sessionResponse.status === 401) {
+    const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+    if (refreshResponse.ok) {
+      const retriedSession = await fetch("/api/auth/session", { cache: "no-store", credentials: "same-origin" });
+      if (retriedSession.ok) return retriedSession.json() as Promise<{ profile: Profile }>;
+    }
+  }
+
+  throw new Error("anonymous");
+}
+
 function Dashboard({ onContinueLesson, onPractice, onNavigate }: { onContinueLesson: () => void; onPractice: () => void; onNavigate: (view: string) => void }) {
   return (
     <div className="content-grid">
@@ -79,9 +94,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) throw new Error("anonymous");
-      const result = await response.json() as { profile: Profile };
+    fetchSessionProfile().then((result) => {
       setProfile(result.profile);
       setShowOnboarding(false);
       setPasswordChangeOpen(Boolean(result.profile.mustChangePassword));
@@ -95,6 +108,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
 
   function selectNav(label: string) {
     setMobileMenuOpen(false);
+    setActive(label);
     const destinations: Record<string, string> = { Início: "/", Aulas: "/aulas", Jornada: "/jornada", Praticar: "/praticar", Conquistas: "/conquistas", Admin: "/admin" };
     router.push(destinations[label] ?? "/");
   }
