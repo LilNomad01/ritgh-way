@@ -578,3 +578,70 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Guided practice: short prompts, readable writing and feedback after submission. */
+.admin-editor.exercise-editor { width: min(880px, 96vw); }
+.exercise-builder { display: grid; gap: 22px; }
+.exercise-builder-step { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #fff; min-width: 0; }
+.exercise-step-title { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.exercise-step-title > span { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 800; }
+.exercise-step-title h3 { margin: 0 0 5px; font-size: 1.15rem; }
+.exercise-step-title p, .exercise-builder small, .exercise-builder fieldset > p { margin: 0; font-size: .875rem; line-height: 1.5; color: var(--muted); }
+.exercise-format-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.exercise-format-grid button { display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); cursor: pointer; min-width: 0; }
+.exercise-format-grid button > span:not(.material-symbols-rounded):not(.material-symbols-outlined) { flex: 1; }
+.exercise-format-grid strong, .exercise-format-grid small { display: block; }
+.exercise-format-grid strong { font-size: .9375rem; margin-bottom: 4px; }
+.exercise-format-grid button.active { border: 2px solid #193f7d; padding: 13px; background: #eff5ff; }
+.exercise-builder label { font-size: .9375rem; gap: 8px; }
+.exercise-builder input:not([type=radio]):not([type=checkbox]), .exercise-builder textarea, .exercise-builder select { font-size: 1rem; width: 100%; min-width: 0; }
+.exercise-builder textarea { min-height: 84px; }
+.exercise-builder .exercise-template { padding: 15px; border-radius: 12px; background: #f4f7fc; }
+.exercise-builder fieldset { margin: 18px 0; padding: 0; border: 0; min-width: 0; }
+.exercise-builder legend { font-size: .9375rem; font-weight: 700; margin-bottom: 8px; }
+.exercise-alternative { display: grid; grid-template-columns: 64px minmax(0,1fr) 36px; align-items: center; gap: 8px; margin-top: 10px; }
+.exercise-builder .exercise-correct-choice { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+.exercise-builder input[type=radio], .exercise-builder input[type=checkbox] { width: 20px; height: 20px; min-height: 20px; padding: 0; accent-color: #15386f; flex-shrink: 0; }
+.exercise-list-row { display: grid; grid-template-columns: minmax(0,1fr) 36px; gap: 8px; align-items: center; margin-top: 10px; }
+.exercise-list-row button, .exercise-alternative > button { border: 0; background: transparent; color: #9c3041; min-height: 44px; cursor: pointer; }
+.exercise-alternative > button:disabled { opacity: .25; cursor: default; }
+.exercise-builder .exercise-add { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #d7e2f2; border-radius: 10px; padding: 10px 14px; min-height: 44px; background: #f5f8fe; color: #183e7d; font-size: .875rem; font-weight: 700; cursor: pointer; margin-top: 12px; }
+.exercise-builder .exercise-skills { display: flex; flex-wrap: wrap; gap: 10px; }
+.exercise-builder .exercise-skills label { display: flex; flex-direction: row; align-items: center; margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; }
+.exercise-preview-toggle { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px; color: #14366b; border: 1px solid #c7d8f2; background: #edf4ff; border-radius: 12px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+.exercise-preview { border: 1px solid #c7d8f2; background: #f9fbff; border-radius: 16px; padding: 22px; }
+.exercise-preview-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: .875rem; color: #173d77; }
+.exercise-preview-heading > span:last-child { font-size: .8rem; color: var(--muted); margin-left: auto; }
+.exercise-preview h3 { font-size: 1.25rem; }
+.exercise-preview p { font-size: 1rem; line-height: 1.5; white-space: pre-wrap; }
+.exercise-preview-options { display: grid; gap: 10px; }
+.exercise-preview-options button { border: 1px solid var(--line); padding: 14px; border-radius: 10px; background: #fff; text-align: left; font-size: 1rem; color: var(--ink); }
+.exercise-preview-options button.selected { border-color: #173d77; background: #e7effc; }
+.exercise-preview-result { margin-top: 15px; padding: 14px; border-radius: 10px; background: #eef3f9; }
+.exercise-editor-error { padding: 14px; background: #fff0f3; color: #b51b36; border-radius: 10px; }
+.exercise-builder button:focus-visible { outline: 3px solid #4a91e8; outline-offset: 3px; }
+@media (max-width:580px) { .exercise-builder-step { padding: 15px; }.exercise-format-grid { grid-template-columns: 1fr; }.exercise-alternative { grid-template-columns: 52px minmax(0,1fr) 32px; gap: 5px; }.exercise-preview { padding: 15px; } }
+.lesson-modal { max-height: 94dvh; overflow-y: auto; }
+.modal-content .maya-tip { margin-bottom: 18px; }
+.modal-content .maya-tip p, .modal-content > p { font-size: 1rem; }
+.writing-answer label, .writing-answer small { font-size: .875rem; letter-spacing: 0; text-transform: none; }
+.writing-answer textarea, .fill-answer input { font-size: 1rem; line-height: 1.5; }
+.listening-controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
+.listening-controls .listen-button { grid-template-columns: 42px minmax(0,1fr); margin: 0; min-height: 76px; }
+.listening-controls .listen-button strong { font-size: 1rem; }
+.listening-controls .listen-button small { font-size: .875rem; }
+.listening-controls .outline-button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: .875rem; }
+.feedback.almost { color: #714b00; background: #fff7df; border: 1px solid #e8c778; }
+.feedback p, .feedback small { font-size: .875rem; line-height: 1.6; }
+.answer-diff { display: flex; flex-wrap: wrap; gap: 5px; }
+.answer-diff mark { background: #ffe4a3; color: #553800; border-radius: 4px; padding: 0 4px; text-decoration: underline; }
+.modal-footer { gap: 12px; }
+.modal-footer > span { font-size: .875rem; }
+.modal-footer button { min-height: 48px; height: auto; flex-shrink: 0; font-size: .875rem; }
+@media (max-width:580px) {
+  .lesson-modal { max-height: 96dvh; }
+  .modal-footer { flex-wrap: wrap; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .modal-footer > span { max-width: none; width: 100%; font-size: .875rem; }
+  .modal-footer button { width: 100%; }
+  .modal-content h2 { font-size: 1.35rem; }
+}

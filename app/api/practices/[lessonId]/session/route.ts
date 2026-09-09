@@ -1,11 +1,12 @@
 import { getD1 } from "../../../../../db";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
+import { assessAnswer } from "../../../../lib/exercise-answers";
 
 export const dynamic = "force-dynamic";
 
 function parseAnswers(value?: string) {
-  try { return JSON.parse(value ?? "[]") as string[]; } catch { return []; }
+  try { const parsed: unknown = JSON.parse(value ?? "[]"); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ lessonId: string }> }) {
@@ -30,10 +31,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     }
     return Response.json({ session: { currentIndex: current.currentIndex, answers: parseAnswers(current.answersJson), score: current.score, total: current.total, status: current.status } });
   }
-  const total = Math.max(1, Math.min(Number(lesson.exerciseCount), Number(payload.total) || Number(lesson.exerciseCount)));
-  const score = Math.max(0, Math.min(total, Number(payload.score) || 0));
+  if (payload.action !== "progress" && payload.action !== "complete") return Response.json({ error: "Ação inválida." }, { status: 400 });
+  const questions = await db.prepare("SELECT correct_answer AS correct, accepted_answers_json AS acceptedJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<{ correct: string; acceptedJson?: string }>();
+  const questionRows = questions.results as { correct: string; acceptedJson?: string }[];
+  const total = questionRows.length;
   const answers = Array.isArray(payload.answers) ? payload.answers.slice(0, total).map((answer) => String(answer).slice(0, 1000)) : [];
-  const currentIndex = Math.max(0, Math.min(total, Number(payload.currentIndex) || 0));
+  if (answers.some(answer => !answer.trim()) || !answers.length || (payload.action === "complete" && answers.length !== total)) return Response.json({ error: "Responda todos os exercícios antes de concluir." }, { status: 400 });
+  const score = questionRows.reduce((sum, question, index) => sum + (assessAnswer(answers[index] ?? "", question.correct, parseAnswers(question.acceptedJson)).status === "correct" ? 1 : 0), 0);
+  const currentIndex = answers.length;
   if (payload.action === "progress") {
     await db.prepare("INSERT INTO practice_sessions (user_id, lesson_id, current_index, answers_json, score, total, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET current_index = excluded.current_index, answers_json = excluded.answers_json, score = excluded.score, total = excluded.total, status = 'active', updated_at = excluded.updated_at").bind(auth.sub, lessonId, currentIndex, JSON.stringify(answers), score, total, now, now).run();
     return Response.json({ ok: true, session: { currentIndex, answers, score, total, status: "active" } });

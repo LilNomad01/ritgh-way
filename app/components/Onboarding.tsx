@@ -2,20 +2,12 @@
 
 import { useState } from "react";
 import { InstallAppButton } from "./PwaSupport";
+import { ListeningAudio } from "./ListeningAudio";
+import { placementQuestions, placementResult } from "../lib/placement";
 
 type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
 type Step = "home" | "login" | "signup" | "goal" | "daily" | "test-intro" | "test" | "result";
 
-const placementQuestions = [
-  { prompt: "Complete a frase", question: "My name ___ Anna.", options: ["am", "is", "are"], correct: 1 },
-  { prompt: "Escolha a tradução", question: "‘Barato’ em inglês é...", options: ["cheap", "large", "fast"], correct: 0 },
-  { prompt: "Qual frase está correta?", question: "Ela trabalha todos os dias.", options: ["She work every day.", "She works every day.", "She working every day."], correct: 1 },
-  { prompt: "Complete a frase", question: "I have lived here ___ five years.", options: ["since", "for", "during"], correct: 1 },
-  { prompt: "Escolha a melhor opção", question: "If it rains, we ___ at home.", options: ["stay", "stayed", "will stay"], correct: 2 },
-  { prompt: "Qual expressão soa natural?", question: "Você está ansioso para conhecer alguém.", options: ["I'm looking forward to meeting you.", "I'm looking forward meet you.", "I look forward for meet you."], correct: 0 },
-  { prompt: "Complete a estrutura avançada", question: "Had I known, I ___ differently.", options: ["would act", "would have acted", "acted"], correct: 1 },
-  { prompt: "Vocabulário avançado", question: "‘Albeit’ significa algo próximo de...", options: ["therefore", "although", "because"], correct: 1 },
-];
 
 const goals = [
   { icon: "✈", title: "Viajar com confiança", text: "Me comunicar em qualquer lugar" },
@@ -38,8 +30,8 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
   const [goal, setGoal] = useState("");
   const [dailyMinutes, setDailyMinutes] = useState(10);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [choice, setChoice] = useState<number | null>(null);
-  const [answers, setAnswers] = useState<number[]>([]);
+  const [choice, setChoice] = useState<string>("");
+  const [answers, setAnswers] = useState<string[]>([]);
   const [manualLevel, setManualLevel] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
@@ -47,8 +39,8 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
   const [loginError, setLoginError] = useState("");
   const [signupError, setSignupError] = useState("");
 
-  const score = answers.reduce((total, answer, index) => total + (answer === placementQuestions[index].correct ? 1 : 0), 0);
-  const level = manualLevel ?? (score <= 1 ? "Começando do zero" : score <= 3 ? "Básico" : score <= 6 ? "Intermediário" : "Avançado");
+  const { score, level: testedLevel } = placementResult(answers);
+  const level = manualLevel ?? testedLevel;
   const flowSteps: Step[] = ["signup", "goal", "daily", "test-intro", "test", "result"];
   const flowIndex = flowSteps.indexOf(step);
   const flowProgress = step === "test" ? 55 + ((questionIndex + 1) / placementQuestions.length) * 35 : Math.max(0, ((flowIndex + 1) / flowSteps.length) * 100);
@@ -59,10 +51,10 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
   }
 
   function continueTest() {
-    if (choice === null) return;
-    const nextAnswers = [...answers, choice];
+    if (!choice.trim()) return;
+    const nextAnswers = [...answers.slice(0, questionIndex), choice];
     setAnswers(nextAnswers);
-    setChoice(null);
+    setChoice("");
     if (questionIndex === placementQuestions.length - 1) setStep("result");
     else setQuestionIndex((value) => value + 1);
   }
@@ -88,7 +80,7 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
     setSignupError("");
     const profile = { ...form, level, placementScore: manualLevel ? 0 : score, goal, dailyMinutes };
     try {
-      const response = await fetch("/api/account", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "register", ...profile, password, answers }) });
+      const response = await fetch("/api/account", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "register", ...profile, password, answers: manualLevel ? [] : answers }) });
       const result = await response.json() as { profile?: Profile; error?: string };
       if (!response.ok || !result.profile) throw new Error(result.error ?? "Não foi possível criar sua conta.");
       onComplete(result.profile);
@@ -105,7 +97,7 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
         <header className="entry-header"><div className="entry-brand"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>ONLINE</small></div></div><button onClick={() => setStep("login")}>ENTRAR</button></header>
         <main className="entry-main">
           <section className="entry-visual" aria-hidden="true"><div className="entry-orbit orbit-a" /><div className="entry-orbit orbit-b" /><div className="entry-eagle"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div className="floating-word word-one"><span>✓</span>Hello!</div><div className="floating-word word-two"><span>🔥</span>+10 XP</div><div className="floating-word word-three"><span>▶</span>Speaking</div></section>
-          <section className="entry-copy"><span className="entry-kicker">APRENDA. PRATIQUE. EVOLUA.</span><h1>Seu inglês começa<br/>do <em>jeito certo.</em></h1><p>Aulas curtas, prática todos os dias e uma jornada feita para o seu nível.</p><button className="entry-primary" onClick={() => setStep("signup")}>COMEÇAR AGORA</button><button className="entry-secondary" onClick={() => setStep("login")}>JÁ TENHO UMA CONTA</button><InstallAppButton /><small>Leva menos de 3 minutos para descobrir seu nível.</small></section>
+          <section className="entry-copy"><span className="entry-kicker">APRENDA. PRATIQUE. EVOLUA.</span><h1>Seu inglês começa<br/>do <em>jeito certo.</em></h1><p>Aulas curtas, prática todos os dias e uma jornada feita para o seu nível.</p><button className="entry-primary" onClick={() => setStep("signup")}>COMEÇAR AGORA</button><button className="entry-secondary" onClick={() => setStep("login")}>JÁ TENHO UMA CONTA</button><InstallAppButton /><small>Leva menos de 5 minutos para descobrir seu nível.</small></section>
         </main>
         <footer className="entry-trust"><span>✓ Teste gratuito</span><span>✓ Sem compromisso</span><span>✓ Plano personalizado</span></footer>
       </div>
@@ -128,9 +120,9 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
 
         {step === "daily" && <section className="flow-panel choice-panel"><div className="flow-mascot"><div className="entry-eagle"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div className="coach-bubble">Consistência vale mais que pressa.</div></div><span className="flow-kicker">META DIÁRIA</span><h1>Quanto tempo cabe no seu dia?</h1><p>Você pode mudar sua meta quando quiser.</p><div className="daily-choice-grid">{dailyGoals.map((item) => <button className={dailyMinutes === item.minutes ? "selected" : ""} onClick={() => setDailyMinutes(item.minutes)} key={item.minutes}><span>{item.minutes}<small>min</small></span><div><strong>{item.label}</strong><small>{item.note}</small></div>{item.minutes === 10 && <b>POPULAR</b>}</button>)}</div><button className="flow-primary" onClick={() => setStep("test-intro")}>CONTINUAR</button></section>}
 
-        {step === "test-intro" && <section className="flow-panel test-intro-panel"><div className="test-shield">?</div><span className="flow-kicker">TESTE DE NIVELAMENTO</span><h1>Vamos encontrar o ponto certo para você.</h1><p>São apenas 8 perguntas. Não mostramos as respostas durante o teste, então seu resultado fica mais preciso.</p><div className="test-benefits"><div><span>◷</span><p><strong>3 minutos</strong>Bem rapidinho</p></div><div><span>◎</span><p><strong>Seu nível real</strong>Do zero ao avançado</p></div><div><span>✦</span><p><strong>Trilha personalizada</strong>Sem repetir o que já sabe</p></div></div><button className="flow-primary" onClick={() => { setManualLevel(null); setStep("test"); }}>COMEÇAR O TESTE</button><button className="flow-outline" onClick={() => { setManualLevel("Começando do zero"); setStep("result"); }}>NÃO SEI NADA DE INGLÊS</button></section>}
+        {step === "test-intro" && <section className="flow-panel test-intro-panel"><div className="test-shield">?</div><span className="flow-kicker">TESTE DE NIVELAMENTO</span><h1>Vamos encontrar o ponto certo para você.</h1><p>São apenas 8 perguntas. Não mostramos as respostas durante o teste, então seu resultado fica mais preciso.</p><div className="test-benefits"><div><span>◷</span><p><strong>3 minutos</strong>No seu ritmo</p></div><div><span>◎</span><p><strong>Estimativa inicial</strong>Do zero ao avançado</p></div><div><span>✦</span><p><strong>Trilha personalizada</strong>Sem repetir o que já sabe</p></div></div><button className="flow-primary" onClick={() => { setManualLevel(null); setAnswers([]); setQuestionIndex(0); setChoice(""); setStep("test"); }}>COMEÇAR O TESTE</button><button className="flow-outline" onClick={() => { setManualLevel("Começando do zero"); setStep("result"); }}>NÃO SEI NADA DE INGLÊS</button></section>}
 
-        {step === "test" && <section className="flow-panel placement-flow"><div className="question-count"><span>QUESTÃO {questionIndex + 1}</span><small>{questionIndex + 1} de {placementQuestions.length}</small></div><span className="flow-kicker">{placementQuestions[questionIndex].prompt}</span><h1>{placementQuestions[questionIndex].question}</h1><div className="placement-flow-options">{placementQuestions[questionIndex].options.map((option, index) => <button className={choice === index ? "selected" : ""} onClick={() => setChoice(index)} key={option}><span>{String.fromCharCode(65 + index)}</span>{option}<i>{choice === index ? "✓" : ""}</i></button>)}</div><button className="flow-primary" disabled={choice === null} onClick={continueTest}>{questionIndex === placementQuestions.length - 1 ? "VER MEU RESULTADO" : "CONTINUAR"}</button><small className="test-note">A resposta correta só será considerada no resultado final.</small></section>}
+        {step === "test" && <section className="flow-panel placement-flow"><div className="question-count"><span>QUESTÃO {questionIndex + 1}</span><small>{questionIndex + 1} de {placementQuestions.length}</small></div><span className="flow-kicker">{placementQuestions[questionIndex].prompt}</span><h1>{placementQuestions[questionIndex].question}</h1>{placementQuestions[questionIndex].speech ? <ListeningAudio key={questionIndex} text={placementQuestions[questionIndex].speech!} /> : null}{placementQuestions[questionIndex].options ? <div className="placement-flow-options">{placementQuestions[questionIndex].options?.map((option, index) => <button aria-pressed={choice === option} className={choice === option ? "selected" : ""} onClick={() => setChoice(option)} key={option}><span>{String.fromCharCode(65 + index)}</span>{option}</button>)}</div> : <div className="writing-answer"><label htmlFor="placement-answer">Sua resposta em inglês</label><textarea id="placement-answer" lang="en" spellCheck={false} autoComplete="off" autoCapitalize="off" maxLength={1000} value={choice} onChange={(event) => setChoice(event.target.value)} placeholder="Escreva sua resposta…" /></div>}<button className="flow-primary" disabled={!choice.trim()} onClick={continueTest}>{questionIndex === placementQuestions.length - 1 ? "VER MEU RESULTADO" : "CONTINUAR"}</button><button className="flow-text" onClick={() => { setAnswers([...answers.slice(0, questionIndex), ""]); setChoice(""); if (questionIndex === placementQuestions.length - 1) setStep("result"); else setQuestionIndex(value => value + 1); }}>Não sei responder</button><small className="test-note">A resposta correta só será considerada no resultado final.</small></section>}
 
         {step === "result" && <section className="flow-panel result-flow"><div className="result-celebration"><i>✦</i><div className="result-ring"><span>{manualLevel ? "✓" : score}</span><small>{manualLevel ? "PRONTO" : `DE ${placementQuestions.length}`}</small></div><i>✦</i></div><span className="flow-kicker">SEU PONTO DE PARTIDA</span><h1>{level}</h1><p>{level === "Avançado" ? "Você já domina estruturas complexas. Sua trilha vai focar fluência, nuance e precisão." : level === "Intermediário" ? "Você já tem uma boa base. Agora vamos transformar conhecimento em conversas mais naturais." : level === "Básico" ? "Você já reconhece estruturas essenciais. Vamos fortalecer sua base e fazer você falar mais." : "Perfeito. Vamos começar do primeiro passo, sem pressa e sem deixar nenhuma dúvida para trás."}</p><div className="path-preview"><div><span>1</span><p><small>PRIMEIRA TRILHA</small><strong>{level === "Avançado" ? "Fluent thinking" : level === "Intermediário" ? "Real conversations" : "Start speaking"}</strong></p></div><b>{dailyMinutes} min por dia</b></div>{signupError && <div className="login-error">{signupError}</div>}<button className="flow-primary" disabled={saving} onClick={finish}>{saving ? "CRIANDO SUA TRILHA..." : "CRIAR CONTA E COMEÇAR"}</button><button className="flow-text" onClick={() => { setAnswers([]); setQuestionIndex(0); setManualLevel(null); setStep("test-intro"); }}>Refazer o teste</button></section>}
       </main>

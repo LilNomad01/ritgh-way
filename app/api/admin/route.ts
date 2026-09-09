@@ -1,5 +1,6 @@
 import { getD1 } from "../../../db";
 import { assertSameOrigin, hashPassword, passwordPolicyError, randomSecret, requireAdmin } from "../../lib/auth";
+import { exerciseTypes, isListening, normalizeAnswer } from "../../lib/exercise-answers";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,22 @@ type ReorderEntity = "section" | "lesson" | "exercise" | "examQuestion";
 
 function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function exerciseError(payload: Record<string, unknown>) {
+  const type = clean(payload.exerciseType);
+  if (!(type in exerciseTypes) && type !== "listening") return "Tipo de exercício inválido.";
+  if (!clean(payload.title) || !clean(payload.prompt) || !clean(payload.correctAnswer) || !clean(payload.explanation)) return "Preencha título, enunciado, resposta e explicação.";
+  if (clean(payload.correctAnswer).length > 1000) return "A resposta deve ter no máximo 1000 caracteres.";
+  if (isListening(type)) {
+    if (!clean(payload.speech)) return "Informe o texto que o aluno vai ouvir.";
+    if (normalizeAnswer(clean(payload.speech)) !== normalizeAnswer(clean(payload.correctAnswer))) return "Na transcrição, a resposta correta deve corresponder ao texto do áudio.";
+  }
+  if (type === "choice") {
+    const options = JSON.parse(jsonArray(payload.optionsJson, "Opções")) as string[];
+    if (options.length < 2 || new Set(options).size !== options.length || !options.includes(clean(payload.correctAnswer))) return "Cadastre ao menos duas opções diferentes, incluindo a resposta correta.";
+  }
+  return null;
 }
 
 function jsonArray(value: unknown, field: string) {
@@ -76,7 +93,9 @@ export async function POST(request: Request) {
       result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "exercise") {
-      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const validationError = exerciseError(payload);
+      if (validationError) return Response.json({ error: validationError }, { status: 400 });
+      const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -122,7 +141,9 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "lesson") {
       await db.prepare("UPDATE lessons SET section_id = ?, title = ?, description = ?, duration = ?, lesson_type = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "exercise") {
-      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const validationError = exerciseError(payload);
+      if (validationError) return Response.json({ error: validationError }, { status: 400 });
+      const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, status = ?, position = ? WHERE id = ?")
