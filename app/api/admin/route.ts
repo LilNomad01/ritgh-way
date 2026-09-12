@@ -27,6 +27,11 @@ function exerciseError(payload: Record<string, unknown>) {
   return null;
 }
 
+function examQuestionError(payload: Record<string, unknown>) {
+  if (isListening(clean(payload.questionType))) return "Use os formatos de escrita, correção ou contexto nesta prova.";
+  return exerciseError({ ...payload, exerciseType: payload.questionType, title: "Questão da prova" });
+}
+
 function jsonArray(value: unknown, field: string) {
   const source = clean(value) || "[]";
   const parsed = JSON.parse(source) as unknown;
@@ -44,7 +49,7 @@ export async function GET(request: Request) {
       db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id"),
       db.prepare("SELECT id, module_id AS moduleId, title, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id"),
       db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_mobile_key AS imageMobileKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id"),
-      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, skills_json AS skillsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id"),
+      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, audio_key AS audioKey, audio_name AS audioName, skills_json AS skillsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id"),
       db.prepare("SELECT id, section_id AS sectionId, title, description, status, pass_score AS passScore, position FROM section_exams ORDER BY section_id, position, id"),
       db.prepare("SELECT id, exam_id AS examId, question_type AS questionType, category, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, status, position FROM section_exam_questions ORDER BY exam_id, position, id"),
     ]);
@@ -93,6 +98,7 @@ export async function POST(request: Request) {
       result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "exercise") {
+      if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") return Response.json({ error: "Salve como rascunho, envie a gravação e depois publique." }, { status: 400 });
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
       const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
@@ -104,7 +110,9 @@ export async function POST(request: Request) {
       result = await db.prepare("INSERT INTO section_exams (section_id, title, description, status, pass_score, position) VALUES (?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1).run();
     } else if (payload.entity === "examQuestion") {
-      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const error = examQuestionError(payload);
+      if (error) return Response.json({ error }, { status: 400 });
+      const optionsJson = payload.questionType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       result = await db.prepare("INSERT INTO section_exam_questions (exam_id, question_type, category, prompt, options_json, correct_answer, accepted_answers_json, explanation, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.examId), clean(payload.questionType) || "choice", clean(payload.category) || "Avaliação", clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
@@ -151,7 +159,9 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "exam") {
       await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1, id).run();
     } else if (payload.entity === "examQuestion") {
-      const optionsJson = jsonArray(payload.optionsJson, "Opções");
+      const error = examQuestionError(payload);
+      if (error) return Response.json({ error }, { status: 400 });
+      const optionsJson = payload.questionType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       await db.prepare("UPDATE section_exam_questions SET exam_id = ?, question_type = ?, category = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, status = ?, position = ? WHERE id = ?")
         .bind(Number(payload.examId), clean(payload.questionType), clean(payload.category), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status), Number(payload.position) || 0, id).run();

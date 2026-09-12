@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MaterialIcon } from "./components/MaterialIcon";
 import { Onboarding } from "./components/Onboarding";
+import { StudentDashboard } from "./components/StudentDashboard";
 import { PasswordChange } from "./components/PasswordChange";
 import { InstallAppButton } from "./components/PwaSupport";
 
@@ -25,10 +26,6 @@ const navItems = [
   { label: "Conquistas", icon: "workspace_premium" },
 ];
 
-const week = [
-  { day: "S", done: true }, { day: "T", done: true }, { day: "Q", done: true },
-  { day: "Q", done: true }, { day: "S", done: true }, { day: "S", done: false }, { day: "D", done: false },
-];
 
 const demoProfile: Profile = { fullName: "Alex Martins", email: "alex@rightway.com", level: "Intermediário", placementScore: 6 };
 
@@ -47,39 +44,7 @@ async function fetchSessionProfile() {
   throw new Error("anonymous");
 }
 
-function Dashboard({ onContinueLesson, onPractice, onNavigate }: { onContinueLesson: () => void; onPractice: () => void; onNavigate: (view: string) => void }) {
-  return (
-    <div className="content-grid">
-      <div className="primary-column">
-        <section className="continue-card">
-          <div className="card-content"><span className="eyebrow">CONTINUE DE ONDE PAROU</span><p className="lesson-meta">Módulo 02 · Aula 07</p><h2>At the coffee shop</h2><p className="lesson-copy">Peça seu café com confiança e pratique expressões que você realmente vai usar.</p><div className="progress-row"><div className="progress-track"><span style={{ width: "68%" }} /></div><strong>68%</strong></div><button className="primary-button" onClick={onContinueLesson}>Continuar aula <span>→</span></button></div>
-          <div className="lesson-visual" aria-hidden="true"><span className="orbit orbit-one" /><span className="orbit orbit-two" /><div className="cup"><span /></div><div className="phrase-card"><small>TRY SAYING</small><strong>“Could I have a latte?”</strong><div><i /><i /><i /><i /><i /></div></div><span className="spark spark-one">✦</span><span className="spark spark-two">✦</span></div>
-        </section>
-
-        <section className="stats-grid" aria-label="Resumo de progresso">
-          <article className="stat-card"><span className="stat-icon red">🔥</span><div><small>SEQUÊNCIA</small><strong>5 dias</strong><p>Seu recorde: 12</p></div></article>
-          <article className="stat-card"><span className="stat-icon blue">✦</span><div><small>XP TOTAL</small><strong>1.840</strong><p><b>+120</b> esta semana</p></div></article>
-          <article className="stat-card"><span className="stat-icon gold">◷</span><div><small>TEMPO ESTUDADO</small><strong>24h 30m</strong><p>+2h esta semana</p></div></article>
-          <article className="stat-card"><span className="stat-icon green">✓</span><div><small>NOTA MÉDIA</small><strong>9,2</strong><p>Excelente desempenho</p></div></article>
-        </section>
-
-        <section className="section-block journey-section"><div className="section-heading"><div><span className="eyebrow">SUA JORNADA</span><h2>Inglês para a vida real</h2></div><button onClick={() => onNavigate("Aulas")}>Ver todas as aulas <span>→</span></button></div><div className="journey-list"><article className="journey-item complete"><span className="step-dot">✓</span><div><small>MÓDULO 01</small><h3>Everyday foundations</h3><p>12 aulas · Concluído</p></div><span className="grade">Nota 9,4</span></article><article className="journey-item current"><span className="step-dot">02</span><div><small>VOCÊ ESTÁ AQUI</small><h3>Real conversations</h3><p>7 de 12 aulas concluídas</p><div className="mini-progress"><span /></div></div><span className="percent">58%</span></article><article className="journey-item locked"><span className="step-dot">03</span><div><small>PRÓXIMO</small><h3>Confident communication</h3><p>12 aulas · Bloqueado</p></div><span>◉</span></article></div></section>
-      </div>
-
-      <aside className="right-column">
-        <section className="coach-card"><div className="coach-top"><div className="coach-avatar">M<span>✦</span></div><div><small>SUA PROFESSORA VIRTUAL</small><strong>Maya</strong></div><span className="online-dot" /></div><blockquote>“Cinco dias seguidos! Hoje vamos transformar vocabulário em conversa de verdade.”</blockquote><button onClick={onPractice}>Praticar com Maya <span>→</span></button></section>
-        <section className="week-card"><div className="week-title"><div><small>META SEMANAL</small><h3>5 de 7 dias</h3></div><span>72%</span></div><div className="week-days">{week.map((item, index) => <div key={index}><span className={item.done ? "done" : ""}>{item.done ? "✓" : index + 1}</span><small>{item.day}</small></div>)}</div><p>Mais <strong>2 dias</strong> para bater sua meta.</p></section>
-        <section className="ranking-card"><div className="ranking-head"><div><small>RANKING PESSOAL</small><h3>Você subiu 3 posições</h3></div><span>↗</span></div><div className="ranking-position"><span>#</span><strong>18</strong><small>entre 842 alunos</small></div><div className="ranking-bar"><span /></div><p>Você está no <strong>top 3%</strong> esta semana.</p></section>
-        <section className="daily-card"><span>✦</span><div><small>DESAFIO RÁPIDO</small><strong>5 exercícios variados</strong></div><button onClick={onPractice} aria-label="Abrir desafio">→</button></section>
-      </aside>
-    </div>
-  );
-}
-
-function Achievements() {
-  const items = [{ icon: "🔥", title: "Em chamas", text: "5 dias seguidos", earned: true }, { icon: "★", title: "Primeiros 1.000 XP", text: "Meta superada", earned: true }, { icon: "☕", title: "Coffee master", text: "Conclua Coffee shop", earned: false }, { icon: "◈", title: "Sem legendas", text: "Complete 10 listenings", earned: false }, { icon: "✓", title: "Nota máxima", text: "Acerte uma prática inteira", earned: true }, { icon: "◇", title: "Imparável", text: "30 dias de sequência", earned: false }];
-  return <div className="achievements-page page-view"><div className="page-hero achievements-hero"><div><span className="eyebrow">SUAS CONQUISTAS</span><h1>Cada passo merece ser celebrado.</h1><p>3 de 12 medalhas conquistadas · Continue avançando.</p></div><div className="trophy">★<span>3</span></div></div><div className="achievement-grid">{items.map((item) => <article className={item.earned ? "earned" : "locked"} key={item.title}><span>{item.icon}</span><div><h3>{item.title}</h3><p>{item.text}</p></div><b>{item.earned ? "Conquistada" : "Bloqueada"}</b></article>)}</div></div>;
-}
+function Achievements() { return <div className="page-view"><section className="section-block"><span className="eyebrow">SUAS CONQUISTAS</span><h1>Seu progresso, sem números inventados.</h1><p>As medalhas ainda estão em preparação. Acompanhe abaixo as atividades realmente concluídas.</p></section><StudentDashboard /></div>; }
 
 type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
 
@@ -141,9 +106,9 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
       </aside>
 
       <section className="workspace">
-        <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>DOMINGO, 2 DE AGOSTO</p><h1>{active === "Início" ? `Bom dia, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><InstallAppButton variant="compact" /><button className="streak-pill" aria-label="Sequência de cinco dias"><MaterialIcon name="local_fire_department" filled /><strong>5</strong><small>dias</small></button><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
+        <header className="topbar"><div className="mobile-brand"><button className="mobile-menu-trigger" onClick={() => setMobileMenuOpen(true)} aria-label="Abrir menu" aria-expanded={mobileMenuOpen}><MaterialIcon name="menu" /></button><div className="brand-icon" aria-hidden="true"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>{active}</small></div></div><div className="greeting"><p>{new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase()}</p><h1>{active === "Início" ? `Olá, ${firstName}!` : active} <span aria-hidden="true">{active === "Início" ? "👋" : ""}</span></h1></div><div className="top-actions"><InstallAppButton variant="compact" /><button className="theme-toggle" onClick={toggleTheme} aria-label="Alternar tema"><MaterialIcon name={dark ? "light_mode" : "dark_mode"} /></button><button className="avatar" onClick={() => profile.role === "admin" && selectNav("Admin")} aria-label={profile.role === "admin" ? "Abrir painel administrativo" : "Perfil do aluno"}>{initials}<span /></button></div></header>
 
-        {active === "Início" && <Dashboard onContinueLesson={() => router.push("/aulas")} onPractice={() => router.push("/praticar")} onNavigate={selectNav} />}
+        {active === "Início" && <StudentDashboard />}
         {active === "Aulas" && examSectionId ? <SectionExam sectionId={examSectionId} session={examSession} onBack={() => router.push("/aulas")} onStart={() => router.push(`/prova/${examSectionId}/sessao`)} onNextSection={() => router.push("/aulas")} /> : null}
         {active === "Aulas" && !examSectionId && <LessonsLibrary lessonId={lessonId} onOpenLesson={(nextLessonId) => router.push(`/aulas/${nextLessonId}`)} onBack={() => router.push("/aulas")} onPracticeLesson={(nextLessonId) => router.push(`/praticar/${nextLessonId}`)} onOpenExam={(sectionId) => router.push(`/prova/${sectionId}`)} />}
         {active === "Jornada" && <JourneyView onContinue={(nextLesson) => router.push(`/aulas/${nextLesson.id}`)} onOpenExam={(sectionId) => router.push(`/prova/${sectionId}`)} />}

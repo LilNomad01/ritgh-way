@@ -1,3 +1,4 @@
+import { normalizeAnswer } from "../../../../lib/exercise-answers";
 import { getD1 } from "../../../../../db";
 import { computeAcademicState, type SectionAcademicState } from "../../../../lib/academic";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
@@ -5,7 +6,7 @@ import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 function normalize(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase().replace(/[.!?]$/g, "");
+  return normalizeAnswer(value);
 }
 
 function acceptedAnswers(correct: string, json?: string) {

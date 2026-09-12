@@ -75,6 +75,8 @@ export const lessonExercises = sqliteTable("lesson_exercises", {
   acceptedAnswersJson: text("accepted_answers_json"),
   explanation: text("explanation").notNull().default(""),
   speech: text("speech"),
+  audioKey: text("audio_key"),
+  audioName: text("audio_name"),
   skillsJson: text("skills_json"),
   status: text("status").notNull().default("Publicado"),
   position: integer("position").notNull().default(0),
@@ -209,3 +211,22 @@ export const sectionExamAttempts = sqliteTable("section_exam_attempts", {
   answersJson: text("answers_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
 }, (table) => [index("section_exam_attempts_user_exam_idx").on(table.userId, table.examId)]);
+export const lessonVideos = sqliteTable("lesson_videos", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  lessonId: integer("lesson_id").notNull(),
+  videoKey: text("video_key").notNull(),
+  title: text("title").notNull(),
+  size: integer("size").notNull().default(0),
+  position: integer("position").notNull().default(0),
+  startSeconds: integer("start_seconds").notNull().default(0),
+  endSeconds: integer("end_seconds"),
+}, table => [index("lesson_videos_lesson_position_idx").on(table.lessonId, table.position)]);
+
+export const videoItemProgress = sqliteTable("video_item_progress", {
+  userId: integer("user_id").notNull(),
+  videoId: integer("video_id").notNull(),
+  positionSeconds: integer("position_seconds").notNull().default(0),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+  completed: integer("completed").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+}, table => [uniqueIndex("video_item_progress_user_video_unique").on(table.userId, table.videoId)]);

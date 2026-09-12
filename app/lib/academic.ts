@@ -53,7 +53,7 @@ type ExamAttemptRow = { examId: number; attemptsCount: number; passed: number; b
 
 export async function computeAcademicState(userId: number): Promise<{ lessonStates: LessonAcademicState[]; sectionStates: SectionAcademicState[]; moduleStates: ModuleAcademicState[] }> {
   const db = getD1();
-  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, examAttemptResult] = await db.batch([
+  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, examAttemptResult, videoItemsResult] = await db.batch([
     db.prepare("SELECT id, position FROM course_modules WHERE status = 'Publicado' ORDER BY position, id"),
     db.prepare("SELECT id, module_id AS moduleId, position FROM course_sections WHERE status = 'Publicado' ORDER BY module_id, position, id"),
     db.prepare("SELECT id, section_id AS sectionId, position FROM lessons WHERE status = 'Publicado' ORDER BY section_id, position, id"),
@@ -62,11 +62,20 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
     db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS exerciseCount FROM lesson_exercises WHERE status = 'Publicado' GROUP BY lesson_id"),
     db.prepare("SELECT e.id, e.section_id AS sectionId, e.title, e.pass_score AS passScore, COUNT(q.id) AS questionCount FROM section_exams e JOIN section_exam_questions q ON q.exam_id = e.id AND q.status = 'Publicado' WHERE e.status = 'Publicado' GROUP BY e.id ORDER BY e.position, e.id"),
     db.prepare("SELECT exam_id AS examId, COUNT(*) AS attemptsCount, MAX(passed) AS passed, MAX(percentage) AS bestPercentage FROM section_exam_attempts WHERE user_id = ? GROUP BY exam_id").bind(userId),
+    db.prepare("SELECT v.id, v.lesson_id AS lessonId, p.completed, p.position_seconds AS positionSeconds, p.duration_seconds AS durationSeconds, p.updated_at AS updatedAt FROM lesson_videos v LEFT JOIN video_item_progress p ON p.video_id = v.id AND p.user_id = ? ORDER BY v.position, v.id").bind(userId),
   ]);
   const modules = moduleResult.results as ModuleRow[];
   const sections = sectionResult.results as SectionRow[];
   const lessons = lessonResult.results as LessonRow[];
   const videos = new Map((videoResult.results as VideoRow[]).map((row) => [row.lessonId, row]));
+  const groups = new Map<number, { id: number; lessonId: number; completed: number | null; positionSeconds: number | null; durationSeconds: number | null; updatedAt: string | null }[]>();
+  for (const row of videoItemsResult.results as { id: number; lessonId: number; completed: number | null; positionSeconds: number | null; durationSeconds: number | null; updatedAt: string | null }[]) groups.set(row.lessonId, [...(groups.get(row.lessonId) ?? []), row]);
+  for (const [lessonId, items] of groups) {
+    const latest = items.filter(item => item.updatedAt).sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+    const completed = items.filter(item => item.completed === 1).length;
+    const percent = Math.round(items.reduce((sum, item) => sum + (item.completed ? 100 : item.durationSeconds ? Math.min(99, 100 * (item.positionSeconds ?? 0) / item.durationSeconds) : 0), 0) / items.length);
+    videos.set(lessonId, { lessonId, status: completed === items.length ? "completed" : latest ? "watching" : "not_started", progressPercent: percent, positionSeconds: latest?.positionSeconds ?? 0, durationSeconds: latest?.durationSeconds ?? 0 });
+  }
   const attempts = new Map((attemptResult.results as AttemptRow[]).map((row) => [row.lessonId, Number(row.attemptsCount)]));
   const exerciseCounts = new Map((exerciseResult.results as ExerciseCountRow[]).map((row) => [row.lessonId, Number(row.exerciseCount)]));
   const exams = new Map((examResult.results as ExamRow[]).map((row) => [row.sectionId, { ...row, questionCount: Number(row.questionCount) }]));

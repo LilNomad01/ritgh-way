@@ -1,3 +1,4 @@
+import { lessonVideos } from "../../../lib/lesson-videos";
 import { getD1 } from "../../../../db";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
@@ -24,5 +25,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
   const state = (academic.lessonStates as LessonAcademicState[]).find((item: LessonAcademicState) => item.lessonId === lessonId);
   if (!state) return Response.json({ error: "Aula indisponível." }, { status: 404 });
-  return Response.json({ lesson, state }, { headers: { "cache-control": "private, no-store" } });
+  const videos = await lessonVideos(lessonId, auth.sub);
+  return Response.json({ lesson, state, videos }, { headers: { "cache-control": "private, no-store" } });
 }

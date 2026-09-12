@@ -4,7 +4,7 @@ import { computeAcademicState, type LessonAcademicState } from "../../../lib/aca
 
 export const dynamic = "force-dynamic";
 
-type ExerciseRow = { id: number; type: string; category: string; title: string; prompt: string; optionsJson?: string; correct: string; acceptedJson?: string; explanation: string; speech?: string; skillsJson?: string };
+type ExerciseRow = { id: number; type: string; category: string; title: string; prompt: string; optionsJson?: string; correct: string; acceptedJson?: string; explanation: string; speech?: string; audioKey?: string; skillsJson?: string };
 type PracticeRow = { id: number; sectionId: number; title: string; duration: string; lessonType: string; imageKey?: string; imageMobileKey?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number; level: string; moduleTitle: string; sectionTitle: string };
 
 function parseList(value?: string) {
@@ -26,7 +26,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
     WHERE l.id = ? AND l.status = 'Publicado' AND m.status = 'Publicado' LIMIT 1`).bind(lessonId).first<PracticeRow>();
   if (!practice) return Response.json({ error: "Prática não encontrada." }, { status: 404 });
   const [exerciseRows, attempts, sessionRow, academic] = await Promise.all([
-    db.prepare("SELECT id, exercise_type AS type, category, title, prompt, options_json AS optionsJson, correct_answer AS correct, accepted_answers_json AS acceptedJson, explanation, speech, skills_json AS skillsJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<ExerciseRow>(),
+    db.prepare("SELECT id, exercise_type AS type, category, title, prompt, options_json AS optionsJson, correct_answer AS correct, accepted_answers_json AS acceptedJson, explanation, speech, audio_key AS audioKey, skills_json AS skillsJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<ExerciseRow>(),
     db.prepare("SELECT score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? AND lesson_id = ? ORDER BY created_at DESC").bind(auth.sub, lessonId).all<{ score: number; total: number; createdAt: string }>(),
     db.prepare("SELECT current_index AS currentIndex, answers_json AS answersJson, score, total, status FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed" }>(),
     computeAcademicState(auth.sub),
