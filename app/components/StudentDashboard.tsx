@@ -24,6 +24,7 @@ type Summary = {
   resume: null | {
     title: string;
     description: string;
+    duration: string | null;
     sectionTitle: string;
     moduleTitle: string;
     imageKey: string | null;
@@ -72,21 +73,24 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
       : `Vídeo em andamento · retomar em ${minutesAndSeconds(resume.position)}`
     : resume?.description || "Explore as aulas disponíveis e escolha o que estudar agora.";
   const nextModule = data.modules.find(module => module.state?.unlocked && !module.state.completed);
+  const overallPercent = data.totalLessons ? Math.round(100 * data.completedLessons / data.totalLessons) : 0;
+  const nextActionLabel = resume?.kind === "exam" ? "Abrir prova" : resume?.started ? "Continuar de onde parei" : "Começar próxima aula";
   const artwork = resume?.imageKey ?? nextModule?.imageKey;
   const mobileArtwork = resume?.imageMobileKey ?? nextModule?.imageMobileKey;
 
   const hero = <section className={`dashboard-hero${compact ? " dashboard-hero-compact" : ""}`} aria-label={resume?.started ? "Continue de onde parou" : "Seu próximo passo"}>
     <div className="dashboard-hero-copy">
-      <span className="eyebrow">{resume?.started ? "CONTINUE DE ONDE PAROU" : "SEU PRÓXIMO PASSO"}</span>
+      <div className="dashboard-hero-kicker"><span className="eyebrow">{resume?.started ? "CONTINUE DE ONDE PAROU" : "SEU PRÓXIMO PASSO"}</span><span className="dashboard-hero-kind"><MaterialIcon name={resume?.kind === "exam" ? "assignment" : resume?.kind === "practice" ? "edit_note" : "play_circle"} />{resume?.kind === "exam" ? "Prova" : resume?.kind === "practice" ? "Prática" : "Aula"}</span></div>
       {resume && <p className="dashboard-hero-path">{resume.moduleTitle} <span>·</span> {resume.sectionTitle}</p>}
       <h2>{resume?.title ?? "Tudo pronto para continuar"}</h2>
       <p className="dashboard-hero-description">{resumeDetail}</p>
-      {resume?.started && resume.total > 0 && <div className="dashboard-hero-progress" role="progressbar" aria-label="Progresso desta atividade" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progressPercent}%` }} /></div>}
-      <button className="primary-button dashboard-hero-button" onClick={() => router.push(resume?.href ?? "/aulas")}>{resume?.started ? "Continuar de onde parei" : "Explorar aulas"}<MaterialIcon name="arrow_forward" /></button>
+      <div className="dashboard-hero-facts"><span><MaterialIcon name="menu_book" />{nextModule?.title ?? resume?.moduleTitle ?? "Trilha de inglês"}</span>{resume?.kind === "video" && resume.duration && <span><MaterialIcon name="schedule" />{resume.duration}</span>}</div>
+      {resume?.started && resume.total > 0 && <div className="dashboard-hero-activity"><div><span>Atividade em andamento</span><strong>{progressPercent}%</strong></div><div className="dashboard-hero-progress" role="progressbar" aria-label="Progresso desta atividade" aria-valuenow={progressPercent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progressPercent}%` }} /></div></div>}
+      <button className="primary-button dashboard-hero-button" onClick={() => router.push(resume?.href ?? "/aulas")}>{resume ? nextActionLabel : "Explorar aulas"}<MaterialIcon name="arrow_forward" /></button>
     </div>
     {!compact && <div className="dashboard-hero-visual" aria-hidden="true">
       {artwork ? <picture>{mobileArtwork && <source media="(max-width: 720px)" srcSet={`/api/media?key=${encodeURIComponent(mobileArtwork)}`} />}<img src={`/api/media?key=${encodeURIComponent(artwork)}`} alt="" /></picture> : <div className="dashboard-hero-brand"><img src="/right-way-brand-optimized.jpg" alt="" /></div>}
-      <div className="dashboard-hero-visual-caption"><MaterialIcon name={resume?.kind === "practice" ? "edit_note" : "play_circle"} /><span>{resume?.started ? "Seu progresso foi salvo" : "Sua jornada começa aqui"}</span></div>
+      <div className="dashboard-hero-visual-caption"><span>PROGRESSO GERAL</span><strong>{overallPercent}%</strong><small>{data.completedLessons} de {data.totalLessons} aulas concluídas</small><div className="dashboard-hero-progress"><span style={{ width: `${overallPercent}%` }} /></div></div>
     </div>}
   </section>;
 
@@ -102,23 +106,21 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
   return <div className="content-grid dashboard-home">
     <div className="primary-column">
       {hero}
-      <section className="stats-grid dashboard-stats" aria-label="Seu progresso registrado">
-        {stats.map(stat => <article className="stat-card" key={stat.label}><span className={`stat-icon ${stat.color}`}><MaterialIcon name={stat.icon} /></span><div><small>{stat.label}</small><strong>{stat.value}</strong><p>{stat.hint}</p></div></article>)}
+      <section className="dashboard-overview" aria-label="Seu progresso registrado">
+        <div className="dashboard-overview-heading"><div><span className="eyebrow">EM RESUMO</span><h2>Seu progresso até aqui</h2></div><span>Atualizado com suas atividades</span></div>
+        <div className="stats-grid dashboard-stats">{stats.map(stat => <article className="stat-card" key={stat.label}><span className={`stat-icon ${stat.color}`}><MaterialIcon name={stat.icon} /></span><div><small>{stat.label}</small><strong>{stat.value}</strong><p>{stat.hint}</p></div></article>)}</div>
       </section>
       <section className="section-block dashboard-journey">
-        <div className="section-heading"><div><span className="eyebrow">SUA JORNADA</span><h2>Inglês para a vida real</h2></div><button onClick={() => router.push("/aulas")}>Ver todas as aulas <MaterialIcon name="arrow_forward" /></button></div>
+        <div className="section-heading"><div><span className="eyebrow">SUA JORNADA</span><h2>Onde você está na trilha</h2></div><button onClick={() => router.push("/jornada")}>Ver jornada completa <MaterialIcon name="arrow_forward" /></button></div>
         {data.modules.length ? <div className="journey-list">{data.modules.slice(0, 4).map((module, index) => {
           const state = module.state;
           const status = state?.completed ? "complete" : state?.unlocked ? "current" : "locked";
-          return <div className={`journey-item ${status}`} key={module.id}><span className="step-dot"><MaterialIcon name={state?.completed ? "check" : state?.unlocked ? "play_arrow" : "lock"} /></span><div><small>MÓDULO {String(index + 1).padStart(2, "0")} · {module.level.toUpperCase()}</small><h3>{module.title}</h3><p>{state?.completedSections ?? 0} de {state?.sectionCount ?? 0} matérias concluídas</p></div><span className={state?.completed ? "grade" : "percent"}>{state?.percent ?? 0}%</span></div>;
+          return <div className={`journey-item ${status}`} key={module.id}><span className="step-dot"><MaterialIcon name={state?.completed ? "check" : state?.unlocked ? "play_arrow" : "lock"} /></span><div><small>MÓDULO {String(index + 1).padStart(2, "0")} · {module.level.toUpperCase()}</small><h3>{module.title}</h3><p>{state?.completedSections ?? 0} de {state?.sectionCount ?? 0} matérias · {state?.completed ? "Concluído" : state?.unlocked ? "Disponível" : "Bloqueado"}</p><div className="dashboard-journey-row-progress"><span style={{ width: `${state?.percent ?? 0}%` }} /></div></div><span className={state?.completed ? "grade" : "percent"}>{state?.percent ?? 0}%</span></div>;
         })}</div> : <p className="dashboard-empty-course">Os módulos aparecerão aqui assim que forem publicados.</p>}
       </section>
     </div>
     <aside className="right-column dashboard-side" aria-label="Atalhos e progresso">
-      <section className="coach-card dashboard-coach"><div className="coach-top"><div className="coach-avatar">M</div><div><small>SUA PROFESSORA VIRTUAL</small><strong>Maya</strong></div></div><p>Uma dica para hoje: ouça, escreva e compare sua resposta com a correção. É assim que você percebe onde pode melhorar.</p><button onClick={() => router.push("/praticar")}>Praticar agora <MaterialIcon name="arrow_forward" /></button></section>
-      <section className="week-card dashboard-progress-card"><div className="dashboard-side-heading"><span className="dashboard-side-icon"><MaterialIcon name="trending_up" /></span><span>SEU PROGRESSO</span></div><strong>{data.completedLessons} de {data.totalLessons} aulas</strong><p>concluídas na sua conta</p><div className="dashboard-side-progress" role="progressbar" aria-label="Aulas concluídas" aria-valuenow={data.completedLessons} aria-valuemin={0} aria-valuemax={data.totalLessons || 1}><span style={{ width: `${data.totalLessons ? Math.round(100 * data.completedLessons / data.totalLessons) : 0}%` }} /></div><small>{data.totalLessons ? `${Math.round(100 * data.completedLessons / data.totalLessons)}% do conteúdo disponível` : "Aguardando aulas publicadas"}</small></section>
-      {nextModule && <section className="ranking-card dashboard-module-card"><div className="dashboard-side-heading"><span className="dashboard-side-icon"><MaterialIcon name="menu_book" /></span><span>MÓDULO ATUAL</span></div><strong>{nextModule.title}</strong><p>{nextModule.level} · {nextModule.state?.completedSections ?? 0} de {nextModule.state?.sectionCount ?? 0} matérias concluídas</p><button onClick={() => router.push("/aulas")}>Explorar módulo <MaterialIcon name="arrow_forward" /></button></section>}
-      <button className="daily-card dashboard-quick" onClick={() => router.push("/praticar")}><span><MaterialIcon name="bolt" /></span><div><small>UM PASSO DE CADA VEZ</small><strong>Revisar minhas respostas</strong></div><MaterialIcon name="arrow_forward" /></button>
+      <section className="dashboard-focus-card"><div className="dashboard-side-heading"><span className="dashboard-side-icon"><MaterialIcon name="route" /></span><span>SEU FOCO AGORA</span></div><strong>{nextModule?.title ?? "Sua trilha de inglês"}</strong><p>{nextModule ? `${nextModule.level} · ${nextModule.state?.completedSections ?? 0} de ${nextModule.state?.sectionCount ?? 0} matérias concluídas` : "Explore o conteúdo disponível e continue no seu ritmo."}</p><div className="dashboard-focus-progress"><div><span>Progresso do módulo</span><strong>{nextModule?.state?.percent ?? 0}%</strong></div><div className="dashboard-side-progress" role="progressbar" aria-label="Progresso do módulo atual" aria-valuenow={nextModule?.state?.percent ?? 0} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${nextModule?.state?.percent ?? 0}%` }} /></div></div><button className="dashboard-focus-action" onClick={() => router.push(resume?.href ?? "/aulas")}>{resume ? nextActionLabel : "Ver aulas"}<MaterialIcon name="arrow_forward" /></button><div className="dashboard-focus-coach"><span className="coach-avatar">M</span><div><small>DICA DA MAYA</small><p>Ouça com atenção, escreva e revise a correção para fixar o que aprendeu.</p></div></div><button className="dashboard-review-link" onClick={() => router.push("/praticar")}><MaterialIcon name="history_edu" />Revisar minhas respostas<MaterialIcon name="arrow_forward" /></button></section>
     </aside>
   </div>;
 }
