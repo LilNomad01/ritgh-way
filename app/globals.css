@@ -295,6 +295,55 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
   .admin-level-block > header { grid-template-columns: 1fr; }
 }
 
+/* Rotação inteligente de práticas */
+.smart-rotation-panel { display: grid; grid-template-columns: 52px minmax(0,1fr) auto; gap: 14px; align-items: center; margin: 18px 0; padding: 17px; border: 1px solid #dce5f4; border-radius: 18px; background: #f7f9fd; }
+.smart-rotation-panel.active { border-color: #9fc0ff; background: linear-gradient(135deg,#eef5ff,#f8fbff); box-shadow: 0 10px 26px rgba(20,78,168,.08); }
+.smart-rotation-icon { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; color: #174fa7; background: #e5efff; }
+.smart-rotation-icon .material-symbols-rounded { font-size: 29px; }
+.smart-rotation-panel strong { display: block; color: var(--navy); font-size: 16px; }
+.smart-rotation-panel p { margin: 4px 0 0; color: #627493; font-size: 14px; line-height: 1.45; }
+.smart-rotation-panel > button { display: inline-flex; align-items: center; gap: 9px; min-width: 118px; padding: 10px 13px; border: 1px solid #cad7eb; border-radius: 999px; color: #667895; background: #fff; font-weight: 800; }
+.smart-rotation-panel > button span { position: relative; width: 35px; height: 20px; border-radius: 999px; background: #bdc9da; transition: background .2s ease; }
+.smart-rotation-panel > button span::after { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(7,27,67,.22); content: ""; transition: transform .2s ease; }
+.smart-rotation-panel.active > button { color: #124894; border-color: #90b5f5; }
+.smart-rotation-panel.active > button span { background: #1765cf; }
+.smart-rotation-panel.active > button span::after { transform: translateX(15px); }
+.lesson-rotation-setting { display: flex !important; align-items: center; gap: 13px; margin-top: 17px; padding: 16px; border: 1px solid #d8e3f3; border-radius: 15px; background: #f7f9fd; cursor: pointer; }
+.lesson-rotation-setting > input { width: 21px !important; height: 21px !important; margin: 0; accent-color: #175bb8; }
+.lesson-rotation-setting > span { display: grid; grid-template-columns: 28px 1fr; align-items: center; }
+.lesson-rotation-setting .material-symbols-rounded { grid-row: 1 / span 2; color: #175bb8; }
+.lesson-rotation-setting strong,.lesson-rotation-setting small { grid-column: 2; }
+.lesson-rotation-setting small { margin-top: 2px; color: #687a98; font-size: 13px; font-weight: 500; }
+.exercise-rotation-builder { margin: 18px 0; padding: 22px; border: 1px solid #c9daf6; border-radius: 20px; background: linear-gradient(145deg,#f3f7ff,#fff); }
+.exercise-rotation-heading { display: grid; grid-template-columns: 48px minmax(0,1fr) auto; align-items: center; gap: 13px; margin-bottom: 18px; }
+.exercise-rotation-heading > span { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; color: #fff; background: #123a7a; }
+.exercise-rotation-heading h3 { margin: 0; color: var(--navy); font-size: 18px; }
+.exercise-rotation-heading p { margin: 4px 0 0; color: #627493; font-size: 14px; line-height: 1.45; }
+.exercise-rotation-heading b { padding: 7px 10px; border-radius: 999px; color: #164d9d; background: #e4efff; font-size: 12px; white-space: nowrap; }
+.exercise-variant-card { margin-top: 14px; padding: 18px; border: 1px solid #dce5f2; border-radius: 16px; background: #fff; box-shadow: 0 7px 20px rgba(13,47,98,.05); }
+.exercise-variant-card > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.exercise-variant-card > header span { color: #d71935; font-size: 12px; font-weight: 900; letter-spacing: 1.3px; }
+.exercise-variant-card > header button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border: 0; color: #bd1831; background: #fff0f2; font-size: 12px; font-weight: 800; }
+.exercise-alternatives.compact { margin-top: 14px; padding: 14px; }
+.rotation-add { width: 100%; justify-content: center; margin-top: 15px; min-height: 48px; border-style: dashed !important; }
+.exercise-rotation-note { display: flex; gap: 12px; margin: 17px 0; padding: 16px; border: 1px solid #d6e4f7; border-radius: 15px; color: #174c98; background: #f1f6ff; }
+.exercise-rotation-note p { margin: 3px 0 0; color: #667895; font-size: 14px; line-height: 1.45; }
+.practice-rotation-badge { display: inline-flex; align-items: center; gap: 10px; margin: 5px 0 17px; padding: 10px 13px; border: 1px solid #91b5ed; border-radius: 13px; color: #0f448f; background: #edf4ff; }
+.practice-rotation-badge > span { display: flex; flex-direction: column; }
+.practice-rotation-badge strong { font-size: 13px; }
+.practice-rotation-badge small { margin-top: 1px; color: #60779a; font-size: 12px; }
+
+@media (max-width: 700px) {
+  .smart-rotation-panel { grid-template-columns: 44px minmax(0,1fr); padding: 14px; }
+  .smart-rotation-icon { width: 44px; height: 44px; }
+  .smart-rotation-panel > button { grid-column: 1 / -1; justify-content: center; width: 100%; }
+  .exercise-rotation-builder { padding: 15px; }
+  .exercise-rotation-heading { grid-template-columns: 42px minmax(0,1fr); }
+  .exercise-rotation-heading > span { width: 42px; height: 42px; }
+  .exercise-rotation-heading b { grid-column: 2; justify-self: start; }
+  .exercise-variant-card { padding: 14px; }
+}
+
 /* Material Symbols + refreshed navigation */
 .material-symbols-rounded { width: 1em; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; flex: 0 0 auto; font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 1.25em; line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: "liga"; -webkit-font-smoothing: antialiased; font-feature-settings: "liga"; }
 .material-icon-filled { font-variation-settings: "FILL" 1; }

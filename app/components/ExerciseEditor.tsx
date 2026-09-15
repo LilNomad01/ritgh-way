@@ -8,6 +8,7 @@ import { assessAnswer, exerciseTypes, isListening } from "../lib/exercise-answer
 import { exerciseExamples } from "../lib/exercise-examples";
 
 type Values = Record<string, string | number>;
+type RotationVariant = { title?: string; prompt: string; options?: string[]; correct: string; accepted?: string[]; explanation?: string };
 const formats = {
   listening_transcription: { icon: "headphones", description: "O aluno ouve e escreve o que entendeu.", prompt: "Instrução antes do áudio", placeholder: "Escute e escreva a frase que você ouvir.", answer: "Transcrição do áudio", sample: "Nice to meet you.", help: "Escreva exatamente o que é dito na gravação. Esta é a referência para corrigir a transcrição." },
   choice: { icon: "radio_button_checked", description: "O aluno escolhe uma resposta para uma situação.", prompt: "Pergunta ou situação", placeholder: "Você quer pedir água com educação. O que diria?", answer: "Resposta correta", sample: "", help: "Marque o círculo ao lado da alternativa correta." },
@@ -22,11 +23,32 @@ function list(value: string | number | undefined): string[] {
   try { const parsed: unknown = JSON.parse(String(value ?? "[]")); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
 }
 
+function variants(value: string | number | undefined): RotationVariant[] {
+  try {
+    const parsed: unknown = JSON.parse(String(value ?? "[]"));
+    return Array.isArray(parsed) ? parsed.filter((item): item is RotationVariant => Boolean(item && typeof item === "object")) : [];
+  } catch {
+    return [];
+  }
+}
+
 function TextList({ title, hint, values, onChange }: { title: string; hint: string; values: string[]; onChange: (values: string[]) => void }) {
   return <fieldset className="exercise-text-list"><legend>{title}</legend><p>{hint}</p>
     {values.map((value, index) => <div className="exercise-list-row" key={index}><input aria-label={`${title} ${index + 1}`} value={value} onChange={event => onChange(values.map((item, i) => i === index ? event.target.value : item))} placeholder="Digite outra resposta válida" /><button type="button" aria-label={`Remover resposta ${index + 1}`} onClick={() => onChange(values.filter((_, i) => i !== index))}><MaterialIcon name="close" /></button></div>)}
     <button type="button" className="exercise-add" onClick={() => onChange([...values, ""])}><MaterialIcon name="add" />Adicionar resposta aceita</button>
   </fieldset>;
+}
+
+function RotationVariants({ type, value, onChange }: { type: keyof typeof formats; value: string | number | undefined; onChange: (value: string) => void }) {
+  const items = variants(value);
+  const update = (index: number, changes: Partial<RotationVariant>) => onChange(JSON.stringify(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...changes } : item)));
+  const add = () => onChange(JSON.stringify([...items, { title: "", prompt: "", correct: "", accepted: [], explanation: "", options: type === "choice" ? ["", ""] : [] }]));
+  return <section className="exercise-rotation-builder"><div className="exercise-rotation-heading"><span><MaterialIcon name="autorenew" filled /></span><div><h3>Variações para a rotação inteligente</h3><p>Cadastre outras formas de cobrar o mesmo conhecimento. Em cada nova tentativa, o aplicativo evita repetir a versão anterior.</p></div><b>{items.length} {items.length === 1 ? "variação" : "variações"}</b></div>
+    {items.map((item, index) => { const variantOptions = item.options?.length ? item.options : ["", ""]; return <article className="exercise-variant-card" key={index}><header><span>VARIAÇÃO {String(index + 1).padStart(2, "0")}</span><button type="button" onClick={() => onChange(JSON.stringify(items.filter((_, itemIndex) => itemIndex !== index)))}><MaterialIcon name="delete" />Remover</button></header><label>Nome curto <input value={item.title ?? ""} onChange={event => update(index, { title: event.target.value })} placeholder="Ex.: Pedido no restaurante" /></label><label>Novo enunciado <textarea rows={2} value={item.prompt ?? ""} onChange={event => update(index, { prompt: event.target.value })} placeholder="Crie uma situação diferente que exija o mesmo raciocínio." /></label>
+      {type === "choice" ? <fieldset className="exercise-alternatives compact"><legend>Alternativas desta variação</legend>{variantOptions.map((option, optionIndex) => <div className="exercise-alternative" key={optionIndex}><label className="exercise-correct-choice"><input type="radio" name={`variant-${index}-correct`} checked={Boolean(option.trim()) && option === item.correct} onChange={() => update(index, { correct: option })} disabled={!option.trim()} /><span>{String.fromCharCode(65 + optionIndex)}</span></label><input value={option} onChange={event => { const next = variantOptions.map((current, currentIndex) => currentIndex === optionIndex ? event.target.value : current); update(index, { options: next, ...(item.correct === option ? { correct: event.target.value } : {}) }); }} placeholder={`Alternativa ${optionIndex + 1}`} /><button type="button" disabled={variantOptions.length <= 2} onClick={() => update(index, { options: variantOptions.filter((_, currentIndex) => currentIndex !== optionIndex), ...(item.correct === option ? { correct: "" } : {}) })}><MaterialIcon name="close" /></button></div>)}<button type="button" className="exercise-add" onClick={() => update(index, { options: [...variantOptions, ""] })}><MaterialIcon name="add" />Adicionar alternativa</button></fieldset> : <label>Resposta correta <textarea rows={2} value={item.correct ?? ""} onChange={event => update(index, { correct: event.target.value })} placeholder="Resposta esperada para esta variação" /></label>}
+      <TextList title="Outras respostas aceitas nesta variação" hint="Opcional. Cadastre formas equivalentes que também devem ser consideradas corretas." values={item.accepted ?? []} onChange={accepted => update(index, { accepted })} /><label>Explicação específica <textarea rows={2} value={item.explanation ?? ""} onChange={event => update(index, { explanation: event.target.value })} placeholder="Opcional. Se ficar vazio, será usada a explicação principal." /></label></article>; })}
+    <button type="button" className="exercise-add rotation-add" onClick={add}><MaterialIcon name="add_circle" />Adicionar nova variação</button>
+  </section>;
 }
 
 function Preview({ values, type }: { values: Values; type: keyof typeof formats }) {
@@ -59,7 +81,7 @@ export function ExerciseEditor({ values, onChange, exam = false }: { values: Val
     if (next === type) return;
     drafts.current[type] = { ...values };
     const previous = drafts.current[next];
-    onChange(previous ? { ...previous, [field]: next } : { ...values, [field]: next, prompt: "", correctAnswer: "", speech: "", optionsJson: "[]", acceptedAnswersJson: "[]", explanation: "" });
+    onChange(previous ? { ...previous, [field]: next } : { ...values, [field]: next, prompt: "", correctAnswer: "", speech: "", optionsJson: "[]", acceptedAnswersJson: "[]", rotationVariantsJson: "[]", explanation: "" });
     setPreview(false);
   }
 
@@ -74,6 +96,8 @@ export function ExerciseEditor({ values, onChange, exam = false }: { values: Val
       <label>{config.prompt}<textarea required value={String(values.prompt ?? "")} onChange={event => update({ prompt: event.target.value })} placeholder={config.placeholder} rows={3} /></label>
       {type === "choice" ? <fieldset className="exercise-alternatives"><legend>Alternativas</legend><p>{config.help}</p>{visibleOptions.map((option, index) => <div className="exercise-alternative" key={index}><label className="exercise-correct-choice"><input type="radio" name="exercise-correct" required checked={Boolean(option.trim()) && option === values.correctAnswer} onChange={() => update({ correctAnswer: option })} disabled={!option.trim()} aria-label={`Marcar alternativa ${index + 1} como correta`} /><span>{String.fromCharCode(65 + index)}</span></label><input required aria-label={`Texto da alternativa ${index + 1}`} value={option} placeholder={`Alternativa ${index + 1}`} onChange={event => { const next = visibleOptions.map((item, i) => i === index ? event.target.value : item); update({ optionsJson: JSON.stringify(next), ...(option && values.correctAnswer === option ? { correctAnswer: event.target.value } : {}) }); }} /><button type="button" disabled={visibleOptions.length <= 2} aria-label={`Remover alternativa ${index + 1}`} onClick={() => update({ optionsJson: JSON.stringify(visibleOptions.filter((_, i) => i !== index)), ...(values.correctAnswer === option ? { correctAnswer: "" } : {}) })}><MaterialIcon name="delete" /></button></div>)}<button type="button" className="exercise-add" onClick={() => update({ optionsJson: JSON.stringify([...visibleOptions, ""]) })}><MaterialIcon name="add" />Adicionar alternativa</button></fieldset> : <><label>{config.answer}<textarea required maxLength={1000} value={String(values.correctAnswer ?? "")} onChange={event => update({ correctAnswer: event.target.value, ...(isListening(type) ? { speech: event.target.value } : {}) })} placeholder={config.sample} rows={2} /><small>{config.help}</small></label>{isListening(type) && values.correctAnswer ? <AudioUpload exerciseId={Number(values.id || 0)} audioKey={String(values.audioKey || "")} audioName={String(values.audioName || "")} onUploaded={(audioKey, audioName) => update({ audioKey, audioName })} /> : null}<TextList title="Outras respostas que você aceita" hint="Opcional. Adicione cada variação válida em um campo separado." values={list(values.acceptedAnswersJson)} onChange={items => update({ acceptedAnswersJson: JSON.stringify(items) })} /></>}
     </section>
+    {!exam && !isListening(type) ? <RotationVariants type={type} value={values.rotationVariantsJson} onChange={rotationVariantsJson => update({ rotationVariantsJson })} /> : null}
+    {!exam && isListening(type) ? <div className="exercise-rotation-note"><MaterialIcon name="graphic_eq" /><div><strong>Rotação de listening</strong><p>Para trocar também a voz, crie outras atividades de listening e envie uma gravação para cada uma. A rotação inteligente mudará a ordem entre elas.</p></div></div> : null}
     <section className="exercise-builder-step"><div className="exercise-step-title"><span>3</span><div><h3>Ensine com a correção</h3><p>Esta explicação aparece depois que o aluno responde.</p></div></div><label>O que o aluno precisa entender?<textarea required value={String(values.explanation ?? "")} onChange={event => update({ explanation: event.target.value })} placeholder="Ex.: Com she, usamos doesn't. O verbo principal continua na forma base: like." rows={3} /></label>
       {!exam && <fieldset className="exercise-skills"><legend>Habilidades trabalhadas</legend>{availableSkills.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={event => update({ skillsJson: JSON.stringify(event.target.checked ? [...skills, skill] : skills.filter(item => item !== skill)) })} />{skill}</label>)}</fieldset>}
       <div className="form-row"><label>Tema<input value={String(values.category ?? "")} onChange={event => update({ category: event.target.value })} placeholder="Ex.: Apresentações" /></label><label>Visibilidade<select value={String(values.status || "Rascunho")} onChange={event => update({ status: event.target.value })}><option value="Rascunho">Rascunho · só administradores</option><option value="Publicado">Publicado · disponível aos alunos</option></select></label></div>

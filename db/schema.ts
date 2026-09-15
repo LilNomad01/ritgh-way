@@ -51,6 +51,7 @@ export const lessons = sqliteTable("lessons", {
   lessonType: text("lesson_type").notNull().default("Vídeo + prática"),
   status: text("status").notNull().default("Publicado"),
   position: integer("position").notNull().default(0),
+  smartRotation: integer("smart_rotation", { mode: "boolean" }).notNull().default(false),
   videoKey: text("video_key"),
   videoName: text("video_name"),
   videoSize: integer("video_size"),
@@ -78,6 +79,7 @@ export const lessonExercises = sqliteTable("lesson_exercises", {
   audioKey: text("audio_key"),
   audioName: text("audio_name"),
   skillsJson: text("skills_json"),
+  rotationVariantsJson: text("rotation_variants_json").notNull().default("[]"),
   status: text("status").notNull().default("Publicado"),
   position: integer("position").notNull().default(0),
 }, (table) => [index("lesson_exercises_lesson_status_position_idx").on(table.lessonId, table.status, table.position)]);
@@ -161,6 +163,7 @@ export const practiceSessions = sqliteTable("practice_sessions", {
   score: integer("score").notNull().default(0),
   total: integer("total").notNull().default(0),
   status: text("status").notNull().default("active"),
+  exercisePlanJson: text("exercise_plan_json").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [uniqueIndex("practice_sessions_user_lesson_unique").on(table.userId, table.lessonId)]);

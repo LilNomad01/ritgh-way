@@ -39,6 +39,27 @@ function jsonArray(value: unknown, field: string) {
   return JSON.stringify(parsed.map((item) => item.trim()).filter(Boolean));
 }
 
+function rotationVariants(value: unknown, type: string) {
+  if (isListening(type)) return "[]";
+  const source = clean(value) || "[]";
+  const parsed = JSON.parse(source) as unknown;
+  if (!Array.isArray(parsed) || parsed.length > 20) throw new Error("Cadastre no máximo 20 variações por exercício.");
+  const normalized = parsed.map((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`A variação ${index + 1} está incompleta.`);
+    const row = item as Record<string, unknown>;
+    const prompt = clean(row.prompt);
+    const correct = clean(row.correct);
+    const title = clean(row.title);
+    const explanation = clean(row.explanation);
+    if (!prompt || !correct) throw new Error(`Preencha o enunciado e a resposta da variação ${index + 1}.`);
+    const accepted = Array.isArray(row.accepted) ? row.accepted.map(clean).filter(Boolean) : [];
+    const options = Array.isArray(row.options) ? row.options.map(clean).filter(Boolean) : [];
+    if (type === "choice" && (options.length < 2 || new Set(options).size !== options.length || !options.includes(correct))) throw new Error(`A variação ${index + 1} precisa ter alternativas diferentes e incluir a correta.`);
+    return { title, prompt, correct, explanation, accepted, options: type === "choice" ? options : [] };
+  });
+  return JSON.stringify(normalized);
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await requireAdmin(request);
@@ -48,8 +69,8 @@ export async function GET(request: Request) {
       db.prepare("SELECT students.id, students.full_name AS fullName, students.email, students.level, students.placement_score AS placementScore, students.status, students.created_at AS createdAt, CASE WHEN user_accounts.id IS NULL THEN 0 ELSE 1 END AS hasAccount, COALESCE(user_accounts.must_change_password, 0) AS mustChangePassword, user_accounts.last_login_at AS lastLoginAt FROM students LEFT JOIN user_accounts ON user_accounts.email = students.email AND user_accounts.role = 'student' ORDER BY students.id DESC"),
       db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id"),
       db.prepare("SELECT id, module_id AS moduleId, title, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id"),
-      db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_mobile_key AS imageMobileKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id"),
-      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, audio_key AS audioKey, audio_name AS audioName, skills_json AS skillsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id"),
+      db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, smart_rotation AS smartRotation, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_mobile_key AS imageMobileKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id"),
+      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, audio_key AS audioKey, audio_name AS audioName, skills_json AS skillsJson, rotation_variants_json AS rotationVariantsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id"),
       db.prepare("SELECT id, section_id AS sectionId, title, description, status, pass_score AS passScore, position FROM section_exams ORDER BY section_id, position, id"),
       db.prepare("SELECT id, exam_id AS examId, question_type AS questionType, category, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, status, position FROM section_exam_questions ORDER BY exam_id, position, id"),
     ]);
@@ -95,8 +116,8 @@ export async function POST(request: Request) {
       result = await db.prepare("INSERT INTO course_sections (module_id, title, description, status, position) VALUES (?, ?, ?, ?, ?)")
         .bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "lesson") {
-      result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position, smart_rotation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0, payload.smartRotation ? 1 : 0).run();
     } else if (payload.entity === "exercise") {
       if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") return Response.json({ error: "Salve como rascunho, envie a gravação e depois publique." }, { status: 400 });
       const validationError = exerciseError(payload);
@@ -104,8 +125,9 @@ export async function POST(request: Request) {
       const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
-      result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));
+      result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, rotation_variants_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "exam") {
       result = await db.prepare("INSERT INTO section_exams (section_id, title, description, status, pass_score, position) VALUES (?, ?, ?, ?, ?, ?)")
         .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1).run();
@@ -147,15 +169,16 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "section") {
       await db.prepare("UPDATE course_sections SET module_id = ?, title = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "lesson") {
-      await db.prepare("UPDATE lessons SET section_id = ?, title = ?, description = ?, duration = ?, lesson_type = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, id).run();
+      await db.prepare("UPDATE lessons SET section_id = ?, title = ?, description = ?, duration = ?, lesson_type = ?, status = ?, position = ?, smart_rotation = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, payload.smartRotation ? 1 : 0, id).run();
     } else if (payload.entity === "exercise") {
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
       const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
-      await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, status = ?, position = ? WHERE id = ?")
-        .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, clean(payload.status), Number(payload.position) || 0, id).run();
+      const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));
+      await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, rotation_variants_json = ?, status = ?, position = ? WHERE id = ?")
+        .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "exam") {
       await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1, id).run();
     } else if (payload.entity === "examQuestion") {
@@ -215,11 +238,11 @@ export async function PATCH(request: Request) {
     }
 
     if (payload.action === "duplicateLesson") {
-      const lesson = await db.prepare("SELECT section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number }>();
+      const lesson = await db.prepare("SELECT section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, smart_rotation AS smartRotation FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number; smartRotation: number }>();
       if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
       const nextPosition = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM lessons WHERE section_id = ?").bind(lesson.sectionId).first<{ nextPosition: number }>();
-      const result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position) VALUES (?, ?, ?, ?, ?, 'Rascunho', ?)")
-        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.description, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1).run();
+      const result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position, smart_rotation) VALUES (?, ?, ?, ?, ?, 'Rascunho', ?, ?)")
+        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.description, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1, lesson.smartRotation ? 1 : 0).run();
       return Response.json({ ok: true, id: result.meta.last_row_id });
     }
 

@@ -43,10 +43,10 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      fetch(`/api/practices/${lessonId}`).then((response) => response.ok ? response.json() as Promise<PracticePayload> : Promise.reject()),
-      fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) }).then((response) => response.ok ? response.json() as Promise<{ session?: PracticePayload["session"] }> : Promise.reject()),
-    ]).then(([practiceData, sessionData]) => {
+    fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) }).then((response) => response.ok ? response.json() as Promise<{ session?: PracticePayload["session"] }> : Promise.reject()).then(async (sessionData) => {
+      const practiceResponse = await fetch(`/api/practices/${lessonId}`);
+      if (!practiceResponse.ok) throw new Error();
+      const practiceData = await practiceResponse.json() as PracticePayload;
       if (cancelled) return;
       const session = sessionData.session ?? practiceData.session;
       setPayload({ ...practiceData, session });
@@ -107,7 +107,10 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
     try {
       const response = await fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start", reset: true }) });
       if (!response.ok) throw new Error();
-    setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setReviewing(false); setError("");
+      const practiceResponse = await fetch(`/api/practices/${lessonId}`);
+      if (!practiceResponse.ok) throw new Error();
+      const practiceData = await practiceResponse.json() as PracticePayload;
+      setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setReviewing(false); setError("");
     } catch { setError("Não foi possível reiniciar. Tente novamente."); } finally { setSaving(false); }
   }
 

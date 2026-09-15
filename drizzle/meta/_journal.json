@@ -57,6 +57,13 @@
       "when": 1789124000485,
       "tag": "0007_confused_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789467858557,
+      "tag": "0008_shallow_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }
