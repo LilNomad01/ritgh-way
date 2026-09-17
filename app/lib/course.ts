@@ -58,8 +58,8 @@ export type CourseData = {
   };
 };
 
-export type LessonState = { lessonId: number; unlocked: boolean; completed: boolean; videoStatus: "not_started" | "watching" | "completed"; videoPercent: number; videoPosition: number; videoDuration: number; exerciseCount: number; exercisesCompleted: boolean; attemptsCount: number; status: "locked" | "available" | "in_progress" | "completed" };
-export type SectionState = { sectionId: number; unlocked: boolean; completed: boolean; lessonCount: number; completedLessons: number; percent: number; examId?: number; examTitle?: string; examQuestionCount: number; examPassScore?: number; examUnlocked: boolean; examPassed: boolean; examAttempts: number; bestExamPercentage?: number; status: "locked" | "available" | "in_progress" | "completed" };
+export type LessonState = { lessonId: number; sectionId: number; unlocked: boolean; completed: boolean; videoStatus: "not_started" | "watching" | "completed"; videoPercent: number; videoPosition: number; videoDuration: number; exerciseCount: number; exercisesCompleted: boolean; attemptsCount: number; lastPercentage?: number; bestPercentage?: number; masteryReached: boolean; reviewRecommended: boolean; weakSkills: { skill: string; correct: number; total: number; percentage: number; lessonId?: number }[]; status: "locked" | "available" | "in_progress" | "completed" };
+export type SectionState = { sectionId: number; unlocked: boolean; completed: boolean; lessonCount: number; completedLessons: number; percent: number; examId?: number; examTitle?: string; examQuestionCount: number; examPassScore?: number; examUnlocked: boolean; examPassed: boolean; examAttempts: number; bestExamPercentage?: number; weakSkills: { skill: string; correct: number; total: number; percentage: number; lessonId?: number }[]; status: "locked" | "available" | "in_progress" | "completed" };
 export type ModuleState = { moduleId: number; unlocked: boolean; completed: boolean; sectionCount: number; completedSections: number; percent: number; status: "locked" | "available" | "in_progress" | "completed" };
 
 export function slugLesson(lesson: CourseLesson) {

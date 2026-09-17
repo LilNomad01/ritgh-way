@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { requireAuth } from "../../lib/auth";
-import { computeAcademicState, type LessonAcademicState, type ModuleAcademicState, type SectionAcademicState } from "../../lib/academic";
+import { computeAcademicState, getNextLearningStep, type LessonAcademicState, type ModuleAcademicState, type SectionAcademicState } from "../../lib/academic";
 
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -20,16 +20,16 @@ export async function GET(request: Request) {
     const lessons = rows[3].results as { id: number; sectionId: number; title: string; description: string; duration: string; sectionTitle: string; moduleTitle: string; level: string; imageKey: string | null; imageMobileKey: string | null }[];
     const modules = (rows[4].results as { id: number; title: string; level: string; description: string; imageKey: string | null; imageMobileKey: string | null }[]).map(module => ({ ...module, state: academic.moduleStates.find((item: ModuleAcademicState) => item.moduleId === module.id) }));
     const states: LessonAcademicState[] = academic.lessonStates;
-    const recent = (rows[2].results as { lessonId: number; currentIndex: number; total: number; kind: string }[]).find(row => states.some(state => state.lessonId === row.lessonId && state.unlocked && !state.completed && (row.kind !== 'practice' || state.videoStatus === 'completed')));
-    const next = recent?.lessonId ?? states.find(state => state.unlocked && !state.completed)?.lessonId;
-    const lesson = lessons.find(item => item.id === next);
-    const availableExam = academic.sectionStates.find((item: SectionAcademicState) => item.examUnlocked && !item.examPassed);
-    const examLesson = lessons.find(item => item.sectionId === availableExam?.sectionId);
-    const resume = recent && lesson
-      ? { ...lesson, started: true, kind: recent.kind, position: recent.currentIndex, total: recent.total, href: recent.kind === 'practice' ? `/praticar/${lesson.id}/sessao` : `/aulas/${lesson.id}` }
-      : availableExam
-        ? { title: availableExam.examTitle || 'Prova da matéria', description: 'As aulas desta matéria já foram concluídas. Agora é hora de aplicar o que aprendeu.', duration: null, sectionTitle: examLesson?.sectionTitle ?? '', moduleTitle: examLesson?.moduleTitle ?? '', imageKey: examLesson?.imageKey ?? null, imageMobileKey: examLesson?.imageMobileKey ?? null, started: false, kind: 'exam', position: 0, total: availableExam.examQuestionCount, href: `/prova/${availableExam.sectionId}` }
-        : lesson ? { ...lesson, started: false, kind: 'video', position: 0, total: 0, href: `/aulas/${lesson.id}` } : null;
+    const step = getNextLearningStep(academic);
+    const lesson = lessons.find(item => item.id === step?.lessonId);
+    const section = academic.sectionStates.find((item: SectionAcademicState) => item.sectionId === step?.sectionId);
+    const sectionLesson = lessons.find(item => item.sectionId === step?.sectionId);
+    const recent = (rows[2].results as { lessonId: number; currentIndex: number; total: number; kind: string }[]).find(row => row.lessonId === step?.lessonId && row.kind === step.kind);
+    const resume = lesson && step
+      ? { ...lesson, started: Boolean(recent), kind: step.kind, position: recent?.currentIndex ?? 0, total: recent?.total ?? 0, href: step.href }
+      : step && sectionLesson
+        ? { title: section?.examTitle || sectionLesson.sectionTitle, description: step.kind === 'review' ? 'Revise os pontos em que teve mais dificuldade antes de uma nova tentativa.' : step.kind === 'exam' ? 'As aulas desta matéria terminaram. Agora aplique o que aprendeu.' : 'A avaliação desta matéria está em preparação.', duration: null, sectionTitle: sectionLesson.sectionTitle, moduleTitle: sectionLesson.moduleTitle, imageKey: sectionLesson.imageKey, imageMobileKey: sectionLesson.imageMobileKey, started: false, kind: step.kind, position: 0, total: section?.examQuestionCount ?? 0, href: step.href }
+        : step?.kind === 'complete' ? { title: 'Curso concluído', description: 'Você finalizou todas as matérias e avaliações disponíveis.', duration: null, sectionTitle: '', moduleTitle: '', imageKey: null, imageMobileKey: null, started: false, kind: 'complete', position: 0, total: 0, href: step.href } : null;
     return Response.json({ completedLessons: states.filter(item => item.completed).length, totalLessons: states.length, practiceAttempts: Number(practice.attempts ?? 0), accuracy: practice.total ? Math.round(100 * practice.correct / practice.total) : null, examAttempts: Number(exams.attempts ?? 0), examAverage: exams.average === null ? null : Math.round(exams.average), modules, resume }, { headers: { 'cache-control': 'private, no-store' } });
   } catch (error) {
     console.error('Dashboard unavailable', error);

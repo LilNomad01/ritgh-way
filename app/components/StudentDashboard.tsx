@@ -49,7 +49,6 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    setError("");
     fetch("/api/dashboard", { cache: "no-store", signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error("Seu progresso está indisponível no momento.");
@@ -62,7 +61,7 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
     return () => controller.abort();
   }, [retry]);
 
-  if (error) return <section className="dashboard-error section-block" role="alert"><p>{error}</p><button className="outline-button" onClick={() => setRetry(value => value + 1)}>Tentar novamente</button></section>;
+  if (error) return <section className="dashboard-error section-block" role="alert"><p>{error}</p><button className="outline-button" onClick={() => { setError(""); setRetry(value => value + 1); }}>Tentar novamente</button></section>;
   if (!data) return <p className="journey-loading">Carregando seu progresso…</p>;
 
   const resume = data.resume;
@@ -74,13 +73,13 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
     : resume?.description || "Explore as aulas disponíveis e escolha o que estudar agora.";
   const nextModule = data.modules.find(module => module.state?.unlocked && !module.state.completed);
   const overallPercent = data.totalLessons ? Math.round(100 * data.completedLessons / data.totalLessons) : 0;
-  const nextActionLabel = resume?.kind === "exam" ? "Abrir prova" : resume?.started ? "Continuar de onde parei" : "Começar próxima aula";
+  const nextActionLabel = resume?.kind === "exam" ? "Abrir avaliação" : resume?.kind === "review" ? "Revisar meus pontos fracos" : resume?.kind === "complete" ? "Ver jornada" : resume?.started ? "Continuar de onde parei" : resume?.kind === "practice" ? "Continuar prática" : "Começar próxima aula";
   const artwork = resume?.imageKey ?? nextModule?.imageKey;
   const mobileArtwork = resume?.imageMobileKey ?? nextModule?.imageMobileKey;
 
   const hero = <section className={`dashboard-hero${compact ? " dashboard-hero-compact" : ""}`} aria-label={resume?.started ? "Continue de onde parou" : "Seu próximo passo"}>
     <div className="dashboard-hero-copy">
-      <div className="dashboard-hero-kicker"><span className="eyebrow">{resume?.started ? "CONTINUE DE ONDE PAROU" : "SEU PRÓXIMO PASSO"}</span><span className="dashboard-hero-kind"><MaterialIcon name={resume?.kind === "exam" ? "assignment" : resume?.kind === "practice" ? "edit_note" : "play_circle"} />{resume?.kind === "exam" ? "Prova" : resume?.kind === "practice" ? "Prática" : "Aula"}</span></div>
+      <div className="dashboard-hero-kicker"><span className="eyebrow">{resume?.started ? "CONTINUE DE ONDE PAROU" : "SEU PRÓXIMO PASSO"}</span><span className="dashboard-hero-kind"><MaterialIcon name={resume?.kind === "exam" ? "assignment" : resume?.kind === "review" ? "rate_review" : resume?.kind === "practice" ? "edit_note" : "play_circle"} />{resume?.kind === "exam" ? "Prova" : resume?.kind === "review" ? "Revisão" : resume?.kind === "practice" ? "Prática" : "Aula"}</span></div>
       {resume && <p className="dashboard-hero-path">{resume.moduleTitle} <span>·</span> {resume.sectionTitle}</p>}
       <h2>{resume?.title ?? "Tudo pronto para continuar"}</h2>
       <p className="dashboard-hero-description">{resumeDetail}</p>

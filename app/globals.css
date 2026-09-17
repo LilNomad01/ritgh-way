@@ -979,3 +979,21 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
   .journey-lesson-list strong { font-size: 12px; }
   .journey-lesson-list small, .journey-lesson-list b { font-size: 11px; }
 }
+
+/* Academic feedback uses the existing cards and colors without changing the course layout. */
+.lesson-complete-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.lesson-complete-actions .outline-button { border: 1px solid #9acdb9; color: #126e52; background: #fff; }
+.lesson-review-panel,.exam-section-review { margin-top: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.lesson-review-panel h3,.exam-section-review h2 { margin: 0 0 8px; color: var(--ink); }
+.lesson-review-panel ul,.exam-section-review ul,.exam-weak-skills ul { margin: 10px 0; padding-left: 18px; }
+.lesson-review-panel li,.exam-weak-skills li { margin: 5px 0; color: var(--ink); }
+.lesson-review-panel article { padding: 12px 0; border-top: 1px solid var(--line); }
+.lesson-review-panel article p,.exam-section-review p { color: var(--muted); }
+.exam-section-review ul { display: grid; gap: 8px; padding: 0; list-style: none; }
+.exam-section-review li { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 11px; border-radius: 9px; background: var(--canvas); }
+.exam-section-review li span { color: var(--muted); }
+.exam-section-review li button { margin-left: auto; border: 0; color: var(--blue); background: transparent; font-weight: 800; cursor: pointer; }
+.exam-weak-skills,.practice-weak-skills { margin: 15px auto; padding: 14px; border-radius: 12px; background: var(--canvas); text-align: left; }
+.practice-weak-skills { max-width: 510px; }
+.practice-weak-skills p { margin: 6px 0 0; color: var(--muted); }
+@media (max-width: 720px) { .lesson-complete-banner { grid-template-columns: 36px minmax(0,1fr); } .lesson-complete-actions { grid-column: 1 / -1; justify-content: stretch; } .lesson-complete-actions button { flex: 1; } }

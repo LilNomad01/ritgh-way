@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CourseData, CourseLesson, orderedCourse } from "../lib/course";
+import { getNextLearningStep } from "../lib/learning-progress";
 import { MaterialIcon } from "./MaterialIcon";
 
 const emptyCourse: CourseData = { modules: [], sections: [], lessons: [], academic: { lessonStates: [], sectionStates: [], moduleStates: [] } };
 const statusIcon = { completed: "check", in_progress: "progress_activity", available: "play_arrow", locked: "lock" } as const;
 
 export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: CourseLesson) => void; onOpenExam: (sectionId: number) => void }) {
+  const router = useRouter();
   const [course, setCourse] = useState<CourseData>(emptyCourse);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -17,8 +20,6 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    setError("");
     fetch("/api/content", { cache: "no-store", signal: controller.signal })
       .then(response => {
         if (!response.ok) throw new Error("Não foi possível carregar sua jornada.");
@@ -35,26 +36,25 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
   }, [retry]);
 
   const ordered = useMemo(() => orderedCourse(course), [course]);
-  const inProgressLesson = course.academic?.lessonStates.find(state => state.status === "in_progress");
-  const availableExam = course.academic?.sectionStates.find(state => state.examUnlocked && !state.examPassed);
-  const nextLessonState = inProgressLesson ?? (availableExam ? undefined : course.academic?.lessonStates.find(state => state.status === "available"));
-  const nextLesson = ordered.lessons.find(lesson => lesson.id === nextLessonState?.lessonId);
-  const nextExam = inProgressLesson ? undefined : availableExam;
+  const step = course.academic ? getNextLearningStep(course.academic) : null;
+  const nextLessonState = course.academic?.lessonStates.find(state => state.lessonId === step?.lessonId);
+  const nextLesson = ordered.lessons.find(lesson => lesson.id === step?.lessonId);
+  const nextExam = step?.kind === "exam" || step?.kind === "review" ? course.academic?.sectionStates.find(state => state.sectionId === step.sectionId) : undefined;
   const currentModule = ordered.modules.find(module => course.academic?.moduleStates.find(state => state.moduleId === module.id && state.unlocked && !state.completed));
-  const nextActionTitle = nextExam?.examTitle ?? nextLesson?.title;
-  const nextActionType = nextExam ? "PROVA LIBERADA" : nextLesson ? "PRÓXIMA AULA" : "JORNADA EM DIA";
+  const nextActionTitle = nextExam?.examTitle ?? nextLesson?.title ?? (step?.kind === "complete" ? "Curso concluído" : undefined);
+  const nextActionType = step?.kind === "review" ? "REVISÃO RECOMENDADA" : nextExam ? "AVALIAÇÃO LIBERADA" : step?.kind === "practice" ? "PRÁTICA PENDENTE" : nextLesson ? "PRÓXIMA AULA" : "JORNADA EM DIA";
   const nextActionDescription = nextExam
-    ? "As aulas da matéria foram concluídas. Mostre o que aprendeu para avançar."
+    ? step?.kind === "review" ? "Revise seus pontos fracos antes da próxima tentativa." : "As aulas da matéria foram concluídas. Mostre o que aprendeu para avançar."
+    : step?.kind === "practice" ? "O vídeo já terminou. Conclua os exercícios desta aula para avançar."
     : nextLessonState?.videoStatus === "watching"
       ? `Seu vídeo está em ${nextLessonState.videoPercent}%. Retome de onde parou.`
       : nextLesson ? "Assista à aula e faça a prática para avançar." : "Todo o conteúdo disponível foi concluído.";
   const openNextAction = () => {
-    if (nextExam) onOpenExam(nextExam.sectionId);
-    else if (nextLesson) onContinue(nextLesson);
+    if (step) router.push(step.href);
   };
 
   if (loading) return <div className="page-view journey-page"><div className="journey-loading">Preparando sua jornada…</div></div>;
-  if (error) return <div className="page-view journey-page"><section className="section-block journey-error" role="alert"><p>{error}</p><button className="outline-button" onClick={() => setRetry(value => value + 1)}>Tentar novamente</button></section></div>;
+  if (error) return <div className="page-view journey-page"><section className="section-block journey-error" role="alert"><p>{error}</p><button className="outline-button" onClick={() => { setError(""); setLoading(true); setRetry(value => value + 1); }}>Tentar novamente</button></section></div>;
 
   return <div className="page-view journey-page">
     <section className="journey-hero">
@@ -62,7 +62,7 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
       <div className="journey-current-summary"><MaterialIcon name="route" filled /><span><small>MÓDULO ATUAL</small><strong>{currentModule?.title ?? (ordered.modules.length ? "Conteúdo concluído" : "Em preparação")}</strong><b>{nextActionTitle ?? "Explore sua trilha"}</b></span></div>
     </section>
 
-    {nextActionTitle && <section className="journey-next-action" aria-label="Próximo passo"><div className="journey-next-action-icon"><MaterialIcon name={nextExam ? "assignment" : "play_circle"} /></div><div><small>{nextActionType}</small><strong>{nextActionTitle}</strong><p>{nextActionDescription}</p></div><button onClick={openNextAction}>Continuar <MaterialIcon name="arrow_forward" /></button></section>}
+    {nextActionTitle && <section className="journey-next-action" aria-label="Próximo passo"><div className="journey-next-action-icon"><MaterialIcon name={nextExam ? "assignment" : "play_circle"} /></div><div><small>{nextActionType}</small><strong>{nextActionTitle}</strong><p>{nextActionDescription}</p></div>{step?.kind !== "complete" && <button onClick={openNextAction}>Continuar <MaterialIcon name="arrow_forward" /></button>}</section>}
 
     <div className="journey-layout"><div className="journey-timeline">
       {ordered.modules.length === 0 && <p className="dashboard-empty-course">Os módulos aparecerão aqui assim que forem publicados.</p>}
@@ -96,7 +96,7 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
           </div>
         </section>;
       })}
-    </div><aside className="journey-aside"><MaterialIcon name={nextExam ? "assignment" : "flag"} /><span className="eyebrow">{nextActionType}</span><h3>{nextActionTitle ?? "Jornada em dia"}</h3><p>{nextActionDescription}</p>{nextActionTitle && <button onClick={openNextAction}>Continuar <MaterialIcon name="arrow_forward" /></button>}</aside></div>
-    {nextActionTitle && <button className="journey-mobile-continue" onClick={openNextAction}><span><small>{nextActionType}</small><strong>{nextActionTitle}</strong></span><span>Continuar <MaterialIcon name="arrow_forward" /></span></button>}
+    </div><aside className="journey-aside"><MaterialIcon name={nextExam ? "assignment" : "flag"} /><span className="eyebrow">{nextActionType}</span><h3>{nextActionTitle ?? "Jornada em dia"}</h3><p>{nextActionDescription}</p>{nextActionTitle && step?.kind !== "complete" && <button onClick={openNextAction}>Continuar <MaterialIcon name="arrow_forward" /></button>}</aside></div>
+    {nextActionTitle && step?.kind !== "complete" && <button className="journey-mobile-continue" onClick={openNextAction}><span><small>{nextActionType}</small><strong>{nextActionTitle}</strong></span><span>Continuar <MaterialIcon name="arrow_forward" /></span></button>}
   </div>;
 }

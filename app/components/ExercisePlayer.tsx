@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MaterialIcon } from "./MaterialIcon";
 import { RecordedAudio } from "./RecordedAudio";
 import { AnswerComparison } from "./AnswerComparison";
 import { assessAnswer, isListening, type exerciseTypes } from "../lib/exercise-answers";
+import { getWeakSkills, MASTERY_THRESHOLD, skillLabel, type LearningStep } from "../lib/learning-progress";
 
 type Exercise = {
   id: number;
@@ -18,6 +20,7 @@ type Exercise = {
   explanation: string;
   speech?: string;
   audioKey?: string;
+  skills?: string[];
 };
 
 type PracticePayload = {
@@ -30,6 +33,7 @@ function answerIsCorrect(exercise: Exercise, answer: string) {
 }
 
 export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClose: () => void }) {
+  const router = useRouter();
   const [payload, setPayload] = useState<PracticePayload | null>(null);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState("");
@@ -40,6 +44,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [nextStep, setNextStep] = useState<LearningStep | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,12 +71,17 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   const canConfirm = Boolean(selected.trim()) && (!exercise || !isListening(exercise.type) || Boolean(exercise.audioKey));
   const progress = useMemo(() => exercises.length ? ((finished ? exercises.length : current + 1) / exercises.length) * 100 : 0, [current, exercises.length, finished]);
   const wrongAnswers = useMemo(() => exercises.map((item, index) => ({ exercise: item, answer: responses[index] ?? "" })).filter((item) => item.answer && !answerIsCorrect(item.exercise, item.answer)), [exercises, responses]);
+  const weakSkills = useMemo(() => getWeakSkills(exercises.map((item, index) => ({ tags: item.skills?.length ? item.skills : [item.category], correct: answerIsCorrect(item, responses[index] ?? "") }))).filter((item) => item.percentage < MASTERY_THRESHOLD), [exercises, responses]);
 
   async function persist(action: "progress" | "complete", nextResponses: string[], nextScore: number, nextIndex: number) {
     setSaving(true); setError("");
     try {
     const response = await fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, answers: nextResponses, score: nextScore, currentIndex: nextIndex, total: exercises.length }) });
     if (!response.ok) throw new Error();
+    if (action === "complete") {
+      const data = await response.json() as { nextStep?: LearningStep };
+      setNextStep(data.nextStep ?? null);
+    }
     return true;
     } catch { setError("Seu resultado não pôde ser salvo agora. Confira a conexão e tente novamente."); return false; }
     finally { setSaving(false); }
@@ -110,7 +120,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
       const practiceResponse = await fetch(`/api/practices/${lessonId}`);
       if (!practiceResponse.ok) throw new Error();
       const practiceData = await practiceResponse.json() as PracticePayload;
-      setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setReviewing(false); setError("");
+      setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setReviewing(false); setNextStep(null); setError("");
     } catch { setError("Não foi possível reiniciar. Tente novamente."); } finally { setSaving(false); }
   }
 
@@ -118,7 +128,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   if (!payload || !exercise) return <div className="lesson-overlay" role="dialog" aria-modal="true"><section className="lesson-modal practice-loading"><MaterialIcon name="progress_activity" /><strong>Carregando prática...</strong></section></div>;
 
   return <div className="lesson-overlay" role="dialog" aria-modal="true" aria-labelledby="lesson-title"><section className="lesson-modal"><div className="modal-top"><button onClick={onClose} aria-label="Sair da prática"><MaterialIcon name="close" /></button><div className="modal-progress"><span style={{ width: `${progress}%` }} /></div><small>{finished ? exercises.length : current + 1} / {exercises.length}</small></div>
-    {finished ? <div className="exercise-finish"><div className="finish-medal"><MaterialIcon name="workspace_premium" filled /></div><span className="eyebrow">RESULTADO DA PRÁTICA</span><h2>{score}/{exercises.length} · {Math.round((score / exercises.length) * 100)}%</h2><p>Você concluiu <strong>{payload.practice.title}</strong>. Seu desempenho foi salvo.</p><div className="finish-stats"><div><small>ACERTOS</small><strong>{score}</strong></div><div><small>ERROS</small><strong>{exercises.length - score}</strong></div><div><small>DESEMPENHO</small><strong>{Math.round((score / exercises.length) * 100)}%</strong></div></div>{reviewing ? <div className="wrong-answer-review"><h3>Revisão dos erros</h3>{wrongAnswers.length ? wrongAnswers.map(({ exercise: wrongExercise, answer }) => <article key={wrongExercise.id}><strong>{wrongExercise.title}</strong><span>Sua resposta: {answer}</span><b>Resposta correta: {wrongExercise.correct}</b><p>{wrongExercise.explanation}</p></article>) : <p>Você acertou tudo. Excelente trabalho!</p>}</div> : null}{error ? <p role="alert">{error}</p> : null}<div className="finish-actions"><button className="secondary-button" onClick={() => setReviewing((value) => !value)}>{reviewing ? "Ocultar revisão" : "Revisar erros"}</button><button disabled={saving} className="secondary-button" onClick={restart}>Refazer prática</button><button className="primary-button" onClick={onClose}>Voltar para Praticar</button></div></div> : <><div className="modal-content"><div className="maya-tip"><div className="coach-avatar small">M</div><p><strong>Dica da Maya</strong>{isListening(exercise.type) ? "Escute, escreva e compare depois de confirmar. Pode ouvir novamente." : "Pense na situação e responda em inglês. Depois vamos revisar juntos."}</p></div><span className="eyebrow">{exercise.category}</span><h2 id="lesson-title">{exercise.title}</h2><p>{exercise.prompt}</p>
+    {finished ? <div className="exercise-finish"><div className="finish-medal"><MaterialIcon name="workspace_premium" filled /></div><span className="eyebrow">RESULTADO DA PRÁTICA</span><h2>{score}/{exercises.length} · {Math.round((score / exercises.length) * 100)}%</h2><p>Você concluiu <strong>{payload.practice.title}</strong>. Seu desempenho foi salvo. {Math.round((score / exercises.length) * 100) >= MASTERY_THRESHOLD ? "Você atingiu o domínio esperado." : `Para dominar esta aula, busque pelo menos ${MASTERY_THRESHOLD}% de acertos na próxima tentativa.`}</p><div className="finish-stats"><div><small>ACERTOS</small><strong>{score}</strong></div><div><small>ERROS</small><strong>{exercises.length - score}</strong></div><div><small>DESEMPENHO</small><strong>{Math.round((score / exercises.length) * 100)}%</strong></div></div>{weakSkills.length ? <div className="practice-weak-skills"><strong>Habilidades para revisar</strong><p>{weakSkills.map((item) => skillLabel(item.skill)).join(" · ")}</p></div> : null}{reviewing ? <div className="wrong-answer-review"><h3>Revisão dos erros</h3>{wrongAnswers.length ? wrongAnswers.map(({ exercise: wrongExercise, answer }) => <article key={wrongExercise.id}><strong>{wrongExercise.title}</strong><AnswerComparison answer={answer} correct={wrongExercise.correct} accepted={wrongExercise.accepted} /><p>{wrongExercise.explanation}</p></article>) : <p>Você acertou tudo. Excelente trabalho!</p>}</div> : null}{error ? <p role="alert">{error}</p> : null}<div className="finish-actions"><button className="secondary-button" onClick={() => setReviewing((value) => !value)}>{reviewing ? "Ocultar revisão" : "Revisar erros"}</button><button disabled={saving} className="secondary-button" onClick={restart}>Refazer prática</button><button className="primary-button" onClick={() => router.push(nextStep?.href ?? "/jornada")}>Continuar jornada</button></div></div> : <><div className="modal-content"><div className="maya-tip"><div className="coach-avatar small">M</div><p><strong>Dica da Maya</strong>{isListening(exercise.type) ? "Escute, escreva e compare depois de confirmar. Pode ouvir novamente." : "Pense na situação e responda em inglês. Depois vamos revisar juntos."}</p></div><span className="eyebrow">{exercise.category}</span><h2 id="lesson-title">{exercise.title}</h2><p>{exercise.prompt}</p>
       {isListening(exercise.type) ? <RecordedAudio exerciseId={exercise.id} available={Boolean(exercise.audioKey)} /> : null}
       {exercise.type === "choice" ? <div className="answers">{exercise.options?.map((option, index) => { const optionSelected = selected === option; const revealCorrect = confirmed && option === exercise.correct; const revealWrong = confirmed && optionSelected && option !== exercise.correct; return <button key={option} disabled={confirmed || saving} className={`${optionSelected && !confirmed ? "selected" : ""} ${revealCorrect ? "correct" : ""} ${revealWrong ? "wrong" : ""}`} onClick={() => choose(option)}><span>{String.fromCharCode(65 + index)}</span>{option}{confirmed && (revealCorrect || revealWrong) ? <b>{revealCorrect ? <MaterialIcon name="check" /> : <MaterialIcon name="close" />}</b> : null}</button>; })}</div> : null}
       {exercise.type === "fill" ? <div className="fill-answer"><span>Complete:</span><input aria-label="Complete a frase" lang="en" spellCheck={false} maxLength={1000} value={selected} disabled={confirmed || saving} onChange={(event) => setSelected(event.target.value)} placeholder="digite aqui" /></div> : null}

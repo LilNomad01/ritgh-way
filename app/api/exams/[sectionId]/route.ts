@@ -1,6 +1,7 @@
 import { getD1 } from "../../../../db";
 import { computeAcademicState, type SectionAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
+import { rotateExamQuestions } from "../../../lib/learning-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +21,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ sect
   if (!exam) return Response.json({ error: "Prova não encontrada." }, { status: 404 });
   const state = (academic.sectionStates as SectionAcademicState[]).find((item: SectionAcademicState) => item.sectionId === sectionId);
   if (!state) return Response.json({ error: "Matéria indisponível." }, { status: 404 });
-  const questions = await db.prepare("SELECT id, question_type AS type, category, prompt, options_json AS optionsJson, position FROM section_exam_questions WHERE exam_id = ? AND status = 'Publicado' ORDER BY position, id").bind(exam.id).all<{ id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }>();
+  const [questions, firstLesson] = await Promise.all([
+    db.prepare("SELECT id, question_type AS type, category, prompt, options_json AS optionsJson, position FROM section_exam_questions WHERE exam_id = ? AND status = 'Publicado' ORDER BY position, id").bind(exam.id).all<{ id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }>(),
+    db.prepare("SELECT id FROM lessons WHERE section_id = ? AND status = 'Publicado' ORDER BY position, id LIMIT 1").bind(sectionId).first<{ id: number }>(),
+  ]);
   const parsed = (questions.results as { id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }[]).map((question) => {
     let options: string[] = [];
     try { options = JSON.parse(question.optionsJson ?? "[]") as string[]; } catch { options = []; }
     return { id: question.id, type: question.type, category: question.category, prompt: question.prompt, options, position: question.position };
   });
-  return Response.json({ exam: { ...exam, questionCount: parsed.length }, questions: parsed, state }, { headers: { "cache-control": "private, no-store" } });
+  return Response.json({ exam: { ...exam, passScore: state.examPassScore, questionCount: parsed.length, firstLessonId: firstLesson?.id }, questions: state.examUnlocked ? rotateExamQuestions(parsed, auth.sub, exam.id, state.examAttempts) : [], state }, { headers: { "cache-control": "private, no-store" } });
 }

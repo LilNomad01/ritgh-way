@@ -1,8 +1,9 @@
 import { getD1 } from "../../../../../db";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
-import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
+import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
 import { assessAnswer } from "../../../../lib/exercise-answers";
 import { buildPracticePlan, parsePracticePlan, type PracticeExerciseSource } from "../../../../lib/practice-rotation";
+import { getWeakSkills, masteryReached, scorePercentage } from "../../../../lib/learning-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -56,13 +57,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     return Response.json({ ok: true, session: { currentIndex, answers, score, total, status: "active" } });
   }
   if (payload.action === "complete") {
+    if (current?.status !== "active" || current.currentIndex < total || JSON.stringify(parseAnswers(current.answersJson)) !== JSON.stringify(answers)) {
+      return Response.json({ error: "Esta tentativa já foi concluída ou ainda tem respostas pendentes." }, { status: 409 });
+    }
     const lessonSlug = `lesson-${lessonId}-practice`;
+    const results = questionRows.map((question, index) => ({
+      exerciseId: question.id,
+      tags: question.skills?.length ? question.skills : [question.category],
+      correct: assessAnswer(answers[index], question.correct, question.accepted).status === "correct",
+      lessonId,
+      prompt: question.prompt,
+      answer: answers[index],
+      correctAnswer: question.correct,
+      explanation: question.explanation,
+    }));
+    const percentage = scorePercentage(score, total);
     await db.batch([
-      db.prepare("INSERT INTO exercise_attempts (user_id, lesson_id, lesson_slug, score, total, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(auth.sub, lessonId, lessonSlug, score, total, JSON.stringify(answers), now),
+      db.prepare("INSERT INTO exercise_attempts (user_id, lesson_id, lesson_slug, score, total, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(auth.sub, lessonId, lessonSlug, score, total, JSON.stringify({ answers, results }), now),
       db.prepare("INSERT INTO lesson_progress (user_id, lesson_id, lesson_slug, progress_percent, best_score, attempts_count, completed_at, updated_at) VALUES (?, ?, ?, 100, ?, 1, ?, ?) ON CONFLICT(user_id, lesson_slug) DO UPDATE SET lesson_id = excluded.lesson_id, progress_percent = 100, best_score = MAX(best_score, excluded.best_score), attempts_count = attempts_count + 1, completed_at = excluded.completed_at, updated_at = excluded.updated_at").bind(auth.sub, lessonId, lessonSlug, score, now, now),
       db.prepare("INSERT INTO practice_sessions (user_id, lesson_id, current_index, answers_json, score, total, status, exercise_plan_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET current_index = excluded.current_index, answers_json = excluded.answers_json, score = excluded.score, total = excluded.total, status = 'completed', exercise_plan_json = excluded.exercise_plan_json, updated_at = excluded.updated_at").bind(auth.sub, lessonId, total, JSON.stringify(answers), score, total, JSON.stringify(questionRows), now, now),
     ]);
-    return Response.json({ ok: true, percentage: Math.round((score / total) * 100), session: { currentIndex: total, answers, score, total, status: "completed" } });
+    const updated = await computeAcademicState(auth.sub);
+    return Response.json({ ok: true, percentage, masteryReached: masteryReached(percentage), weakSkills: getWeakSkills(results), nextStep: getNextLearningStep(updated), session: { currentIndex: total, answers, score, total, status: "completed" } });
   }
   return Response.json({ error: "Ação inválida." }, { status: 400 });
 }

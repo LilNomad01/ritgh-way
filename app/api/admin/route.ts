@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { assertSameOrigin, hashPassword, passwordPolicyError, randomSecret, requireAdmin } from "../../lib/auth";
 import { exerciseTypes, isListening, normalizeAnswer } from "../../lib/exercise-answers";
+import { MASTERY_THRESHOLD } from "../../lib/learning-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
         .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
     } else if (payload.entity === "exam") {
       result = await db.prepare("INSERT INTO section_exams (section_id, title, description, status, pass_score, position) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1).run();
+        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), Number(payload.position) || 1).run();
     } else if (payload.entity === "examQuestion") {
       const error = examQuestionError(payload);
       if (error) return Response.json({ error }, { status: 400 });
@@ -180,7 +181,7 @@ export async function PUT(request: Request) {
       await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, rotation_variants_json = ?, status = ?, position = ? WHERE id = ?")
         .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status), Number(payload.position) || 0, id).run();
     } else if (payload.entity === "exam") {
-      await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(0, Number(payload.passScore) || 70)), Number(payload.position) || 1, id).run();
+      await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), Number(payload.position) || 1, id).run();
     } else if (payload.entity === "examQuestion") {
       const error = examQuestionError(payload);
       if (error) return Response.json({ error }, { status: 400 });

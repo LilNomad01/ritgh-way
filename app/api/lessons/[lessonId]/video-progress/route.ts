@@ -1,5 +1,5 @@
 import { getD1 } from "../../../../../db";
-import { computeAcademicState, type LessonAcademicState } from "../../../../lib/academic";
+import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -39,5 +39,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
       status = CASE WHEN status = 'completed' OR excluded.status = 'completed' THEN 'completed' ELSE excluded.status END,
       updated_at = excluded.updated_at`).bind(auth.sub, lessonId, position, duration, completed ? 100 : percentage, status, now).run();
   const updated = await computeAcademicState(auth.sub);
-  return Response.json({ ok: true, state: updated.lessonStates.find((item) => item.lessonId === lessonId) });
+  const state = updated.lessonStates.find((item) => item.lessonId === lessonId);
+  return Response.json({ ok: true, state, nextStep: state?.completed ? getNextLearningStep(updated) : null });
 }
