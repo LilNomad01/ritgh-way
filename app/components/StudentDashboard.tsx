@@ -73,7 +73,7 @@ export function StudentDashboard({ compact = false }: { compact?: boolean }) {
     : resume?.description || "Explore as aulas disponíveis e escolha o que estudar agora.";
   const nextModule = data.modules.find(module => module.state?.unlocked && !module.state.completed);
   const overallPercent = data.totalLessons ? Math.round(100 * data.completedLessons / data.totalLessons) : 0;
-  const nextActionLabel = resume?.kind === "exam" ? "Abrir avaliação" : resume?.kind === "review" ? "Revisar meus pontos fracos" : resume?.kind === "complete" ? "Ver jornada" : resume?.started ? "Continuar de onde parei" : resume?.kind === "practice" ? "Continuar prática" : "Começar próxima aula";
+  const nextActionLabel = resume?.kind === "exam" ? "Abrir avaliação" : resume?.kind === "review" ? "Revisar meus pontos fracos" : resume?.kind === "complete" ? "Ver jornada" : resume?.kind === "pending" ? "Revisar aulas concluídas" : resume?.started ? "Continuar de onde parei" : resume?.kind === "practice" ? "Continuar prática" : "Começar próxima aula";
   const artwork = resume?.imageKey ?? nextModule?.imageKey;
   const mobileArtwork = resume?.imageMobileKey ?? nextModule?.imageMobileKey;
 

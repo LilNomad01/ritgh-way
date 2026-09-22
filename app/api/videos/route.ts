@@ -32,10 +32,14 @@ function bucket() {
   };
 }
 
-async function saveVideoMetadata(lessonId: number, key: string, name: string, size: number) {
+async function saveVideoMetadata(lessonId: number, key: string, size: number) {
   await importLegacyVideo(lessonId);
-  await getD1().prepare("INSERT INTO lesson_videos (lesson_id, video_key, title, size, position) VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM lesson_videos WHERE lesson_id = ?))").bind(lessonId, key, name, size, lessonId).run();
-  await getD1().prepare("UPDATE lessons SET video_key = COALESCE(video_key, ?), video_name = COALESCE(video_name, ?), video_size = COALESCE(video_size, ?) WHERE id = ?").bind(key, name, size, lessonId).run();
+  const db = getD1();
+  const row = await db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS position FROM lesson_videos WHERE lesson_id = ?").bind(lessonId).first<{ position: number }>();
+  const position = row?.position ?? 0;
+  const title = `Vídeo ${position + 1}`;
+  await db.prepare("INSERT INTO lesson_videos (lesson_id, video_key, title, size, position) VALUES (?, ?, ?, ?, ?)").bind(lessonId, key, title, size, position).run();
+  await db.prepare("UPDATE lessons SET video_key = COALESCE(video_key, ?), video_name = COALESCE(video_name, ?), video_size = COALESCE(video_size, ?) WHERE id = ?").bind(key, title, size, lessonId).run();
 }
 
 export async function POST(request: Request) {
@@ -81,7 +85,7 @@ export async function POST(request: Request) {
         if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
         const completed = await multipart.complete(parts.sort((left, right) => left.partNumber - right.partNumber));
         payload.size = completed.size;
-        await saveVideoMetadata(lessonId, key, payload.name ?? "video.mp4", Number(payload.size) || 0);
+        await saveVideoMetadata(lessonId, key, Number(payload.size) || 0);
         return Response.json({ ok: true, key, name: payload.name, size: payload.size });
       }
 
@@ -96,7 +100,7 @@ export async function POST(request: Request) {
     if (file.size > MAX_DIRECT_UPLOAD) return Response.json({ error: "Arquivo grande demais para envio direto. Use o envio em partes da tela de vídeos." }, { status: 413 });
     const key = videoKey(lessonId, file.name);
     await storage.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-    await saveVideoMetadata(lessonId, key, file.name, file.size);
+    await saveVideoMetadata(lessonId, key, file.size);
     return Response.json({ ok: true, key, name: file.name, size: file.size });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Falha no upload." }, { status: 500 });
