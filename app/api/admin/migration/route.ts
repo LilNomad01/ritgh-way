@@ -270,6 +270,10 @@ export async function POST(request: Request) {
       return json({ ok: true, migrated: await migrateDatabase(token) });
     }
 
+    if (payload.action === "target") {
+      return json({ ok: true, target: await bridge(token, { action: "target-summary" }) });
+    }
+
     if (payload.action === "media") {
       return json({ ok: true, ...(await migrateOneMediaObject(token, payload.cursor ?? undefined)) });
     }
