@@ -31,8 +31,7 @@ export async function POST(request: Request) {
       account = { id: Number(result.meta.last_row_id), email: root.email, fullName: "Vinicius Gullo", passwordHash: root.passwordHash, passwordSalt: root.passwordSalt, role: "admin", status: "active", level: "Avançado", placementScore: 8, tokenVersion: 1, mustChangePassword: 1 };
     }
 
-    const valid = account && account.status === "active" && await verifyPassword(password, account.passwordSalt, account.passwordHash);
-    if (!valid) {
+    if (!account || account.status !== "active" || !(await verifyPassword(password, account.passwordSalt, account.passwordHash))) {
       const nextCount = (attempt?.failedCount ?? 0) + 1;
       const lockedUntil = nextCount >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
       await db.prepare("INSERT INTO login_attempts (identifier, failed_count, locked_until, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(identifier) DO UPDATE SET failed_count = excluded.failed_count, locked_until = excluded.locked_until, updated_at = excluded.updated_at")
