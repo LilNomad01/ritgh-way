@@ -1,21 +1,22 @@
-import { env } from "cloudflare:workers";
 import { getD1 } from "../../../db";
 import { assertSameOrigin, requireAdmin, requireAuth } from "../../lib/auth";
+import {
+  STORAGE_CHUNK_SIZE,
+  abortResumableUpload,
+  completeResumableUpload,
+  createResumableUpload,
+  deleteObject,
+  fetchObject,
+  uploadResumablePart,
+} from "../../lib/storage";
 
 export const dynamic = "force-dynamic";
 
 type UploadedPart = { partNumber: number; etag: string };
-type MultipartUpload = {
-  uploadId: string;
-  uploadPart: (partNumber: number, value: ReadableStream | ArrayBuffer | Blob) => Promise<UploadedPart>;
-  complete: (parts: UploadedPart[]) => Promise<R2Object>;
-  abort: () => Promise<void>;
-};
 type ArtworkEntity = "module" | "section" | "lesson";
 type ArtworkDevice = "desktop" | "mobile";
 
 const MAX_IMAGE_SIZE = 12 * 1024 * 1024;
-const CHUNK_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 
 function safeName(name: string) {
@@ -31,13 +32,6 @@ function artworkConfiguration(entity: string, device: string = "desktop") {
   return null;
 }
 
-function storage() {
-  return env.VIDEOS as R2Bucket & {
-    createMultipartUpload?: (key: string, options?: R2PutOptions) => Promise<MultipartUpload>;
-    resumeMultipartUpload?: (key: string, uploadId: string) => MultipartUpload;
-  };
-}
-
 async function replaceArtwork(entity: ArtworkEntity, device: ArtworkDevice, id: number, key: string) {
   const configuration = artworkConfiguration(entity, device);
   if (!configuration) throw new Error("Tipo de capa inválido.");
@@ -46,7 +40,7 @@ async function replaceArtwork(entity: ArtworkEntity, device: ArtworkDevice, id: 
   if (!previous) throw new Error("Conteúdo não encontrado.");
   await db.prepare(`UPDATE ${configuration.table} SET ${configuration.column} = ? WHERE id = ?`).bind(key, id).run();
   if (previous.imageKey?.startsWith("covers/") && previous.imageKey !== key) {
-    await storage().delete(previous.imageKey).catch(() => undefined);
+    await deleteObject(previous.imageKey).catch(() => undefined);
   }
 }
 
@@ -57,18 +51,15 @@ export async function POST(request: Request) {
     if (auth instanceof Response) return auth;
     const url = new URL(request.url);
     const action = url.searchParams.get("action");
-    const bucket = storage();
 
     if (action === "part") {
       const key = url.searchParams.get("key") ?? "";
       const uploadId = url.searchParams.get("uploadId") ?? "";
       const partNumber = Number(url.searchParams.get("partNumber"));
       const declaredSize = Number(request.headers.get("content-length") ?? 0);
-      if (!key.startsWith("covers/") || !uploadId || !partNumber || partNumber > 4 || !request.body) return Response.json({ error: "Parte de imagem inválida." }, { status: 400 });
-      if (declaredSize > CHUNK_SIZE) return Response.json({ error: "Parte da imagem acima do limite permitido." }, { status: 413 });
-      const multipart = bucket.resumeMultipartUpload?.(key, uploadId);
-      if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-      const part = await multipart.uploadPart(partNumber, request.body);
+      if (!key.startsWith("covers/") || !uploadId || !partNumber || !request.body) return Response.json({ error: "Parte de imagem inválida." }, { status: 400 });
+      if (declaredSize > STORAGE_CHUNK_SIZE) return Response.json({ error: "Parte da imagem acima do limite permitido." }, { status: 413 });
+      const part = await uploadResumablePart(uploadId, partNumber, request.body);
       return Response.json({ part });
     }
 
@@ -85,12 +76,8 @@ export async function POST(request: Request) {
         const exists = await getD1().prepare(`SELECT id FROM ${configuration.table} WHERE id = ? LIMIT 1`).bind(id).first();
         if (!exists) return Response.json({ error: "Conteúdo não encontrado." }, { status: 404 });
         const key = `covers/${configuration.entity}/${id}/${configuration.device}/${crypto.randomUUID()}-${safeName(payload.name ?? "capa.webp")}`;
-        const multipart = await bucket.createMultipartUpload?.(key, {
-          httpMetadata: { contentType, cacheControl: "private, max-age=31536000, immutable" },
-          customMetadata: { originalName: safeName(payload.name ?? "capa.webp") },
-        });
-        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-        return Response.json({ key, uploadId: multipart.uploadId, chunkSize: CHUNK_SIZE });
+        const upload = await createResumableUpload(key, size, contentType, "31536000");
+        return Response.json({ key, uploadId: upload.uploadId, chunkSize: STORAGE_CHUNK_SIZE });
       }
 
       if (payload.action === "complete") {
@@ -99,13 +86,11 @@ export async function POST(request: Request) {
         const key = payload.key ?? "";
         const uploadId = payload.uploadId ?? "";
         const parts = payload.parts ?? [];
-        if (!configuration || !id || !key.startsWith(`covers/${configuration.entity}/${id}/${configuration.device}/`) || !uploadId || !parts.length || parts.length > 4) return Response.json({ error: "Upload de capa incompleto." }, { status: 400 });
-        const multipart = bucket.resumeMultipartUpload?.(key, uploadId);
-        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-        const object = await multipart.complete(parts.sort((left, right) => left.partNumber - right.partNumber));
-        if (object.size > MAX_IMAGE_SIZE) {
-          await bucket.delete(key);
-          return Response.json({ error: "A imagem final ultrapassou 12 MB." }, { status: 413 });
+        if (!configuration || !id || !key.startsWith(`covers/${configuration.entity}/${id}/${configuration.device}/`) || !uploadId || !parts.length) return Response.json({ error: "Upload de capa incompleto." }, { status: 400 });
+        const object = await completeResumableUpload(uploadId);
+        if (object.key !== key || object.size > MAX_IMAGE_SIZE) {
+          if (object.key === key) await deleteObject(key).catch(() => undefined);
+          return Response.json({ error: "A imagem final ultrapassou 12 MB ou não corresponde ao upload iniciado." }, { status: 413 });
         }
         await replaceArtwork(configuration.entity, configuration.device, id, key);
         return Response.json({ ok: true, key, size: object.size });
@@ -114,7 +99,7 @@ export async function POST(request: Request) {
       if (payload.action === "abort") {
         const key = payload.key ?? "";
         const uploadId = payload.uploadId ?? "";
-        if (key.startsWith("covers/") && uploadId) await bucket.resumeMultipartUpload?.(key, uploadId)?.abort();
+        if (key.startsWith("covers/") && uploadId) await abortResumableUpload(uploadId).catch(() => undefined);
         return Response.json({ ok: true });
       }
 
@@ -132,12 +117,17 @@ export async function GET(request: Request) {
   if (auth instanceof Response) return auth;
   const key = new URL(request.url).searchParams.get("key") ?? "";
   if (!key.startsWith("covers/")) return new Response("Imagem inválida", { status: 400 });
-  const object = await storage().get(key);
-  if (!object) return new Response("Imagem não encontrada", { status: 404 });
+
+  const upstream = await fetchObject(key);
+  if (!upstream.ok) return new Response("Imagem não encontrada", { status: upstream.status === 404 ? 404 : 502 });
+
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
+  for (const name of ["content-type", "content-length", "etag", "last-modified"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
   headers.set("cache-control", "private, max-age=31536000, immutable");
-  if (request.headers.get("if-none-match") === object.httpEtag) return new Response(null, { status: 304, headers });
-  return new Response(object.body, { headers });
+  headers.set("x-content-type-options", "nosniff");
+  if (request.headers.get("if-none-match") && request.headers.get("if-none-match") === headers.get("etag")) return new Response(null, { status: 304, headers });
+  return new Response(upstream.body, { status: 200, headers });
 }
