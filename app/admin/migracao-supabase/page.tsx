@@ -13,6 +13,7 @@ type MigrationResponse = {
   ok?: boolean;
   error?: string;
   source?: SourceSummary;
+  target?: { tableCounts?: Record<string, number> };
   migrated?: Record<string, number> | { key: string; size: number; skipped: boolean } | null;
   cursor?: string | null;
   done?: boolean;
@@ -63,6 +64,22 @@ export default function SupabaseMigrationPage() {
     setStatus(`Banco copiado: ${rows} linhas enviadas ao Supabase.`);
   }
 
+  async function verifyTargetDatabase(expected: SourceSummary) {
+    setStatus("Validando contagens do banco no Supabase...");
+    const response = await requestMigration(token.trim(), "target");
+    const targetCounts = response.target?.tableCounts;
+    if (!targetCounts) throw new Error("O Supabase não retornou as contagens de destino.");
+
+    const mismatches = Object.entries(expected.tableCounts)
+      .filter(([table, count]) => Number(targetCounts[table] ?? -1) !== count)
+      .map(([table, count]) => `${table}: origem ${count}, destino ${targetCounts[table] ?? "ausente"}`);
+
+    if (mismatches.length) {
+      throw new Error(`Contagens divergentes no Supabase: ${mismatches.join("; ")}`);
+    }
+    setStatus("Banco validado: as 18 tabelas têm exatamente as mesmas contagens da origem.");
+  }
+
   async function migrateMedia(expected: SourceSummary) {
     let cursor: string | null | undefined = undefined;
     let count = 0;
@@ -99,8 +116,10 @@ export default function SupabaseMigrationPage() {
         throw new Error(`Existem ${source.unexpectedObjects} objetos fora dos caminhos conhecidos. A migração foi interrompida para não perder nada.`);
       }
       await migrateDatabase();
+      await verifyTargetDatabase(source);
       await migrateMedia(source);
-      setStatus("Cópia concluída. Agora valide o Supabase antes do cutover.");
+      await verifyTargetDatabase(source);
+      setStatus("Cópia e validação concluídas. O banco bate 1:1 e todas as mídias foram verificadas por tamanho.");
     } catch (error) {
       setStatus(`ERRO: ${error instanceof Error ? error.message : "Falha desconhecida."}`);
     } finally {
