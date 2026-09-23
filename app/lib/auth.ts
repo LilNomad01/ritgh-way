@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { getD1 } from "../../db";
 
 const encoder = new TextEncoder();
@@ -28,7 +27,7 @@ export type AuthClaims = {
 };
 
 function secrets() {
-  return env as unknown as RuntimeSecrets;
+  return process.env as unknown as RuntimeSecrets;
 }
 
 function bytesToBase64Url(bytes: Uint8Array) {
