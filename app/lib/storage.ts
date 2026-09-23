@@ -14,11 +14,11 @@ const globalStorage = globalThis as typeof globalThis & {
 };
 
 function config() {
-  const url = process.env.SUPABASE_URL;
-  const secret = process.env.SUPABASE_SECRET_KEY;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || "course-media";
   if (!url || !secret) {
-    throw new Error("SUPABASE_URL and SUPABASE_SECRET_KEY must be configured.");
+    throw new Error("Supabase URL and server secret key must be configured.");
   }
   return { url, secret, bucket };
 }
