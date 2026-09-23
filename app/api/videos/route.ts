@@ -1,20 +1,20 @@
 import { importLegacyVideo } from "../../lib/lesson-videos";
 import { computeAcademicState } from "../../lib/academic";
-import { env } from "cloudflare:workers";
 import { getD1 } from "../../../db";
 import { assertSameOrigin, requireAdmin, requireAuth } from "../../lib/auth";
+import {
+  STORAGE_CHUNK_SIZE,
+  completeResumableUpload,
+  createResumableUpload,
+  fetchObject,
+  uploadObject,
+  uploadResumablePart,
+} from "../../lib/storage";
 
 export const dynamic = "force-dynamic";
 
 type UploadedPart = { partNumber: number; etag: string };
-type MultipartUpload = {
-  uploadId: string;
-  uploadPart: (partNumber: number, value: ReadableStream | ArrayBuffer | Blob) => Promise<UploadedPart>;
-  complete: (parts: UploadedPart[]) => Promise<R2Object>;
-  abort: () => Promise<void>;
-};
 
-const CHUNK_SIZE = 8 * 1024 * 1024;
 const MAX_DIRECT_UPLOAD = 80 * 1024 * 1024;
 
 function safeFileName(name: string) {
@@ -23,13 +23,6 @@ function safeFileName(name: string) {
 
 function videoKey(lessonId: number, fileName: string) {
   return `lessons/${lessonId}/${crypto.randomUUID()}-${safeFileName(fileName)}`;
-}
-
-function bucket() {
-  return env.VIDEOS as R2Bucket & {
-    createMultipartUpload?: (key: string, options?: R2PutOptions) => Promise<MultipartUpload>;
-    resumeMultipartUpload?: (key: string, uploadId: string) => MultipartUpload;
-  };
 }
 
 async function saveVideoMetadata(lessonId: number, key: string, size: number) {
@@ -49,16 +42,13 @@ export async function POST(request: Request) {
     if (auth instanceof Response) return auth;
     const url = new URL(request.url);
     const action = url.searchParams.get("action");
-    const storage = bucket();
 
     if (action === "part") {
       const key = url.searchParams.get("key") ?? "";
       const uploadId = url.searchParams.get("uploadId") ?? "";
       const partNumber = Number(url.searchParams.get("partNumber"));
       if (!key.startsWith("lessons/") || !uploadId || !partNumber || !request.body) return Response.json({ error: "Parte de vídeo inválida." }, { status: 400 });
-      const multipart = storage.resumeMultipartUpload?.(key, uploadId);
-      if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-      const part = await multipart.uploadPart(partNumber, request.body);
+      const part = await uploadResumablePart(uploadId, partNumber, request.body);
       return Response.json({ part });
     }
 
@@ -66,13 +56,13 @@ export async function POST(request: Request) {
       const payload = await request.json() as { action?: string; lessonId?: number; name?: string; type?: string; size?: number; key?: string; uploadId?: string; parts?: UploadedPart[] };
       if (payload.action === "init") {
         const lessonId = Number(payload.lessonId);
+        const size = Number(payload.size);
         const fileName = safeFileName(payload.name ?? "video.mp4");
         const contentType = payload.type?.startsWith("video/") ? payload.type : "video/mp4";
-        if (!Number.isSafeInteger(lessonId) || lessonId < 1 || !fileName || !await getD1().prepare("SELECT id FROM lessons WHERE id = ?").bind(lessonId).first()) return Response.json({ error: "Selecione uma aula existente e um vídeo." }, { status: 400 });
+        if (!Number.isSafeInteger(lessonId) || lessonId < 1 || !fileName || !Number.isSafeInteger(size) || size < 1 || !await getD1().prepare("SELECT id FROM lessons WHERE id = ?").bind(lessonId).first()) return Response.json({ error: "Selecione uma aula existente e um vídeo." }, { status: 400 });
         const key = videoKey(lessonId, fileName);
-        const multipart = await storage.createMultipartUpload?.(key, { httpMetadata: { contentType } });
-        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-        return Response.json({ key, uploadId: multipart.uploadId, chunkSize: CHUNK_SIZE });
+        const upload = await createResumableUpload(key, size, contentType);
+        return Response.json({ key, uploadId: upload.uploadId, chunkSize: STORAGE_CHUNK_SIZE });
       }
 
       if (payload.action === "complete") {
@@ -81,12 +71,10 @@ export async function POST(request: Request) {
         const uploadId = payload.uploadId ?? "";
         const parts = payload.parts ?? [];
         if (!lessonId || !key.startsWith(`lessons/${lessonId}/`) || !uploadId || !parts.length) return Response.json({ error: "Upload incompleto." }, { status: 400 });
-        const multipart = storage.resumeMultipartUpload?.(key, uploadId);
-        if (!multipart) return Response.json({ error: "Upload em partes indisponível neste ambiente." }, { status: 501 });
-        const completed = await multipart.complete(parts.sort((left, right) => left.partNumber - right.partNumber));
-        payload.size = completed.size;
-        await saveVideoMetadata(lessonId, key, Number(payload.size) || 0);
-        return Response.json({ ok: true, key, name: payload.name, size: payload.size });
+        const completed = await completeResumableUpload(uploadId);
+        if (completed.key !== key) return Response.json({ error: "Upload não corresponde ao vídeo iniciado." }, { status: 400 });
+        await saveVideoMetadata(lessonId, key, completed.size);
+        return Response.json({ ok: true, key, name: payload.name, size: completed.size });
       }
 
       return Response.json({ error: "Ação inválida." }, { status: 400 });
@@ -99,7 +87,7 @@ export async function POST(request: Request) {
     if (!file.type.startsWith("video/")) return Response.json({ error: "O arquivo precisa ser um vídeo." }, { status: 400 });
     if (file.size > MAX_DIRECT_UPLOAD) return Response.json({ error: "Arquivo grande demais para envio direto. Use o envio em partes da tela de vídeos." }, { status: 413 });
     const key = videoKey(lessonId, file.name);
-    await storage.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    await uploadObject(key, file, file.type);
     await saveVideoMetadata(lessonId, key, file.size);
     return Response.json({ ok: true, key, name: file.name, size: file.size });
   } catch (error) {
@@ -118,14 +106,17 @@ export async function GET(request: Request) {
     const allowed = new Set(academic.lessonStates.filter(state => state.unlocked).map(state => state.lessonId));
     if (!linked.results.some((row: { lessonId: number }) => allowed.has(row.lessonId))) return new Response("Vídeo indisponível para sua conta", { status: 403 });
   }
-  const object = await bucket().get(key, { range: request.headers });
-  if (!object) return new Response("Vídeo não encontrado", { status: 404 });
+
+  const upstream = await fetchObject(key, request.headers.get("range"));
+  if (!upstream.ok && upstream.status !== 206) return new Response("Vídeo não encontrado", { status: upstream.status === 404 ? 404 : 502 });
+
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
+  for (const name of ["content-type", "content-length", "content-range", "etag", "last-modified"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
   headers.set("cache-control", "private, max-age=3600");
   headers.set("accept-ranges", "bytes");
-  if (object.range && "offset" in object.range) { const start = object.range.offset ?? 0; const length = object.range.length ?? object.size; headers.set("content-range", `bytes ${start}-${start + length - 1}/${object.size}`); headers.set("content-length", String(length)); return new Response(object.body, { status: 206, headers }); }
-  headers.set("content-length", String(object.size));
-  return new Response(object.body, { headers });
+  headers.set("x-content-type-options", "nosniff");
+  return new Response(upstream.body, { status: upstream.status, headers });
 }
