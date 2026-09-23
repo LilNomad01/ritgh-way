@@ -36,7 +36,7 @@ const globalDatabase = globalThis as typeof globalThis & {
 };
 
 function databaseUrl() {
-  const value = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  const value = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
   if (!value) {
     throw new Error(
       "DATABASE_URL is not configured. Use the Supabase transaction-pooler connection string in Vercel."
