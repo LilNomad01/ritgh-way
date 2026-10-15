@@ -49,6 +49,20 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
     : nextLessonState?.videoStatus === "watching"
       ? `Seu vídeo está em ${nextLessonState.videoPercent}%. Retome de onde parou.`
       : nextLesson ? "Assista à aula e faça a prática para avançar." : "Todo o conteúdo disponível foi concluído.";
+  const lessonStates = course.academic?.lessonStates ?? [];
+  const sectionStates = course.academic?.sectionStates ?? [];
+  const completedLessons = lessonStates.filter(item => item.completed).length;
+  const completedSections = sectionStates.filter(item => item.completed).length;
+  const scoredLessons = lessonStates.filter(item => item.bestPercentage !== undefined);
+  const averageScore = scoredLessons.length ? Math.round(scoredLessons.reduce((sum, item) => sum + (item.bestPercentage ?? 0), 0) / scoredLessons.length) : undefined;
+  const focus = useMemo(() => {
+    const values = new Map<string, { correct: number; total: number; lessonId?: number }>();
+    for (const section of course.academic?.sectionStates ?? []) for (const skill of section.weakSkills) {
+      const previous = values.get(skill.skill) ?? { correct: 0, total: 0, lessonId: skill.lessonId };
+      values.set(skill.skill, { correct: previous.correct + skill.correct, total: previous.total + skill.total, lessonId: previous.lessonId ?? skill.lessonId });
+    }
+    return [...values].map(([skill, value]) => ({ skill, percentage: Math.round(100 * value.correct / Math.max(1, value.total)), lessonId: value.lessonId })).sort((a, b) => a.percentage - b.percentage).slice(0, 3);
+  }, [course]);
   const openNextAction = () => {
     if (step) router.push(step.href);
   };
@@ -57,12 +71,12 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
   if (error) return <div className="page-view journey-page"><section className="section-block journey-error" role="alert"><p>{error}</p><button className="outline-button" onClick={() => { setError(""); setLoading(true); setRetry(value => value + 1); }}>Tentar novamente</button></section></div>;
 
   return <div className="page-view journey-page">
-    <section className="journey-hero">
-      <div><span className="eyebrow">SUA JORNADA</span><h1>Aprenda no seu ritmo. Avance com clareza.</h1><p>Veja o que já concluiu e o que precisa fazer para liberar a próxima etapa.</p></div>
-      <div className="journey-current-summary"><MaterialIcon name="route" filled /><span><small>MÓDULO ATUAL</small><strong>{currentModule?.title ?? (ordered.modules.length ? "Conteúdo concluído" : "Em preparação")}</strong><b>{nextActionTitle ?? "Explore sua trilha"}</b></span></div>
+    <section className="journey-hero journey-hero-academic">
+      <div className="journey-hero-copy"><span className="eyebrow">CONTINUE DE ONDE PAROU</span><small>{currentModule?.title ?? (ordered.modules.length ? "Jornada concluída" : "Conteúdo em preparação")}{nextLesson ? ` · ${course.sections.find(section => section.id === nextLesson.sectionId)?.title ?? ""}` : ""}</small><h1>{nextActionTitle ?? (ordered.modules.length ? "Conteúdo disponível concluído" : "Sua jornada começa aqui")}</h1><p>{nextActionDescription}</p>{step?.kind !== "complete" && nextActionTitle ? <button onClick={openNextAction}>Continuar jornada <MaterialIcon name="arrow_forward" /></button> : null}</div>
+      <div className="journey-hero-progress"><MaterialIcon name={nextExam ? "assignment" : "route"} filled /><div><small>PROGRESSO DO MÓDULO</small><strong>{course.academic?.moduleStates.find(state => state.moduleId === currentModule?.id)?.percent ?? 0}%</strong><div><span style={{ width: `${course.academic?.moduleStates.find(state => state.moduleId === currentModule?.id)?.percent ?? 0}%` }} /></div><b>{nextActionType}</b></div></div>
     </section>
 
-    {nextActionTitle && <section className="journey-next-action" aria-label="Próximo passo"><div className="journey-next-action-icon"><MaterialIcon name={nextExam ? "assignment" : "play_circle"} /></div><div><small>{nextActionType}</small><strong>{nextActionTitle}</strong><p>{nextActionDescription}</p></div>{step?.kind !== "complete" && <button onClick={openNextAction}>Continuar <MaterialIcon name="arrow_forward" /></button>}</section>}
+    <section className="journey-insights" aria-label="Resumo da jornada"><div className="journey-stats"><article><MaterialIcon name="school" /><span><strong>{completedLessons}</strong><small>aulas concluídas</small></span></article><article><MaterialIcon name="verified" /><span><strong>{completedSections}</strong><small>seções concluídas</small></span></article><article><MaterialIcon name="analytics" /><span><strong>{averageScore === undefined ? "—" : `${averageScore}%`}</strong><small>{averageScore === undefined ? "sem média ainda" : "melhor média"}</small></span></article></div><article className="journey-focus"><div><span className="eyebrow">SEU FOCO</span><h2>{focus.length ? "Fortaleça seus pontos mais importantes" : "Estamos conhecendo seu desempenho"}</h2><p>{focus.length ? "Recomendações baseadas nas suas respostas reais, sem números fictícios." : "Continue praticando para receber recomendações personalizadas."}</p></div>{focus.length ? <div className="journey-focus-skills">{focus.map(item => <button key={item.skill} onClick={() => router.push(item.lessonId ? `/praticar/${item.lessonId}` : "/praticar")}><span><strong>{item.skill.replace(/[_-]+/g, " ")}</strong><small>{item.percentage < 60 ? "Precisa de prática" : "Pode melhorar"}</small></span><b>{item.percentage}%</b></button>)}</div> : <MaterialIcon name="insights" />}</article></section>
 
     <div className="journey-layout"><div className="journey-timeline">
       {ordered.modules.length === 0 && <p className="dashboard-empty-course">Os módulos aparecerão aqui assim que forem publicados.</p>}

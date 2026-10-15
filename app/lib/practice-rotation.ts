@@ -134,7 +134,7 @@ export function buildPracticePlan(sources: PracticeExerciseSource[], smartRotati
   });
 
   if (!smartRotation) return plan;
-  plan = plan.map((item) => item.type === "choice" ? { ...item, options: shuffled(item.options) } : item);
+  plan = plan.map((item) => item.type === "choice" || item.type === "choice_speaking" ? { ...item, options: shuffled(item.options) } : item);
   const shuffledPlan = shuffled(plan);
   if (shuffledPlan.length > 1 && previous.length === shuffledPlan.length && shuffledPlan.every((item, index) => item.id === previous[index]?.id)) {
     shuffledPlan.push(shuffledPlan.shift() as PracticePlanItem);

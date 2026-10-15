@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../app/lib/exercise-answers.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { assessAnswer } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const { assessAnswer, exerciseTypes, isChoice, isSpeaking } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 
 test("dictation ignores case, spacing and punctuation", () => {
   assert.equal(assessAnswer("  could I have water please! ", "Could I have water, please?").status, "correct");
@@ -28,4 +28,18 @@ test("almost is feedback only, with aligned missing words", () => {
 });
 test("empty, unrelated and reordered answers are not correct", () => {
   for (const answer of ["", "banana", "you meet to nice"]) assert.notEqual(assessAnswer(answer, "Nice to meet you").status, "correct");
+});
+test("speaking formats are explicit without changing legacy choice exercises", () => {
+  assert.equal(exerciseTypes.speaking, "Speaking");
+  assert.equal(exerciseTypes.choice_speaking, "Objetiva + Speaking");
+  assert.equal(isSpeaking("speaking"), true);
+  assert.equal(isSpeaking("choice_speaking"), true);
+  assert.equal(isSpeaking("choice"), false);
+  assert.equal(isChoice("choice_speaking"), true);
+  assert.equal(isChoice("choice"), true);
+});
+test("teacher-approved semantic variants remain valid for speaking transcription", () => {
+  const result = assessAnswer("Could I get a coffee, please?", "Could I have a coffee, please?", ["Could I get a coffee, please?"]);
+  assert.equal(result.status, "correct");
+  assert.equal(result.expected, "Could I get a coffee, please?");
 });

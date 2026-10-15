@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { assertSameOrigin, hashPassword, passwordPolicyError, randomSecret, requireAdmin } from "../../lib/auth";
-import { exerciseTypes, isListening, normalizeAnswer } from "../../lib/exercise-answers";
+import { exerciseTypes, isChoice, isListening, normalizeAnswer } from "../../lib/exercise-answers";
 import { MASTERY_THRESHOLD } from "../../lib/learning-progress";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ function exerciseError(payload: Record<string, unknown>) {
     if (!clean(payload.speech)) return "Informe o texto que o aluno vai ouvir.";
     if (normalizeAnswer(clean(payload.speech)) !== normalizeAnswer(clean(payload.correctAnswer))) return "Na transcrição, a resposta correta deve corresponder ao texto do áudio.";
   }
-  if (type === "choice") {
+  if (isChoice(type)) {
     const options = JSON.parse(jsonArray(payload.optionsJson, "Opções")) as string[];
     if (options.length < 2 || new Set(options).size !== options.length || !options.includes(clean(payload.correctAnswer))) return "Cadastre ao menos duas opções diferentes, incluindo a resposta correta.";
   }
@@ -55,8 +55,8 @@ function rotationVariants(value: unknown, type: string) {
     if (!prompt || !correct) throw new Error(`Preencha o enunciado e a resposta da variação ${index + 1}.`);
     const accepted = Array.isArray(row.accepted) ? row.accepted.map(clean).filter(Boolean) : [];
     const options = Array.isArray(row.options) ? row.options.map(clean).filter(Boolean) : [];
-    if (type === "choice" && (options.length < 2 || new Set(options).size !== options.length || !options.includes(correct))) throw new Error(`A variação ${index + 1} precisa ter alternativas diferentes e incluir a correta.`);
-    return { title, prompt, correct, explanation, accepted, options: type === "choice" ? options : [] };
+    if (isChoice(type) && (options.length < 2 || new Set(options).size !== options.length || !options.includes(correct))) throw new Error(`A variação ${index + 1} precisa ter alternativas diferentes e incluir a correta.`);
+    return { title, prompt, correct, explanation, accepted, options: isChoice(type) ? options : [] };
   });
   return JSON.stringify(normalized);
 }
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
       if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") return Response.json({ error: "Salve como rascunho, envie a gravação e depois publique." }, { status: 400 });
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
-      const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
+      const optionsJson = isChoice(clean(payload.exerciseType)) ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));
@@ -174,7 +174,7 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "exercise") {
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
-      const optionsJson = payload.exerciseType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
+      const optionsJson = isChoice(clean(payload.exerciseType)) ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));

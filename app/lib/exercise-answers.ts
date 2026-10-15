@@ -51,6 +51,10 @@ export const exerciseTypes = {
   writing: "Resposta curta",
   situational: "Situação real",
   teacher_prompt: "Pergunta da professora",
+  speaking: "Speaking",
+  choice_speaking: "Objetiva + Speaking",
 } as const;
 
 export function isListening(type: string) { return type === "listening" || type === "listening_transcription"; }
+export function isSpeaking(type: string) { return type === "speaking" || type === "choice_speaking"; }
+export function isChoice(type: string) { return type === "choice" || type === "choice_speaking"; }

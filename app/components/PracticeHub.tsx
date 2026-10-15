@@ -57,7 +57,7 @@ export function PracticeHub({ lessonId, onOpenDetail, onStartSession, onBackToHu
   useEffect(() => {
     let cancelled = false;
     const endpoint = lessonId ? `/api/practices/${lessonId}` : "/api/practices";
-    fetch(endpoint).then((response) => response.ok ? response.json() : Promise.reject()).then((result) => {
+    fetch(endpoint).then((response) => response.ok ? response.json() as Promise<PracticeData & { practice?: PracticeSummary }> : Promise.reject()).then((result) => {
       if (cancelled) return;
       if (lessonId) setDetail(result.practice ?? null);
       else setData(result);

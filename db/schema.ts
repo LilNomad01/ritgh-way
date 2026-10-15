@@ -164,9 +164,34 @@ export const practiceSessions = sqliteTable("practice_sessions", {
   total: integer("total").notNull().default(0),
   status: text("status").notNull().default("active"),
   exercisePlanJson: text("exercise_plan_json").notNull().default("[]"),
+  speakingAttemptIdsJson: text("speaking_attempt_ids_json").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [uniqueIndex("practice_sessions_user_lesson_unique").on(table.userId, table.lessonId)]);
+
+export const speakingAttempts = sqliteTable("speaking_attempts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  lessonId: integer("lesson_id").notNull(),
+  exerciseId: integer("exercise_id").notNull(),
+  practiceSessionId: integer("practice_session_id").notNull(),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  transcription: text("transcription").notNull(),
+  expectedText: text("expected_text").notNull(),
+  conceptualStatus: text("conceptual_status").notNull(),
+  conceptualScore: integer("conceptual_score"),
+  vocabularyScore: integer("vocabulary_score"),
+  grammarScore: integer("grammar_score"),
+  pronunciationScore: integer("pronunciation_score"),
+  fluencyScore: integer("fluency_score"),
+  resultJson: text("result_json").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull().default("completed"),
+  createdAt: text("created_at").notNull(),
+}, (table) => [
+  index("speaking_attempts_user_exercise_idx").on(table.userId, table.exerciseId),
+  index("speaking_attempts_session_idx").on(table.practiceSessionId),
+]);
 
 export const videoProgress = sqliteTable("video_progress", {
   id: integer("id").primaryKey({ autoIncrement: true }),

@@ -12,6 +12,10 @@ function parseList(value?: string) {
   try { return JSON.parse(value ?? "[]") as string[]; } catch { return []; }
 }
 
+function parseSpeakingAttempts(value?: string) {
+  try { const parsed: unknown = JSON.parse(value ?? "{}"); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, number> : {}; } catch { return {}; }
+}
+
 function lessonSlug(title: string) {
   return title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
@@ -33,7 +37,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const [exerciseRows, attempts, sessionRow, academic] = await Promise.all([
     db.prepare("SELECT id, exercise_type AS type, category, title, prompt, options_json AS optionsJson, correct_answer AS correct, accepted_answers_json AS acceptedJson, explanation, speech, audio_key AS audioKey, skills_json AS skillsJson, rotation_variants_json AS rotationVariantsJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<ExerciseRow>(),
     db.prepare("SELECT score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? AND (lesson_id = ? OR lesson_slug = ? OR lesson_slug = ? OR lesson_slug = ?) ORDER BY created_at DESC").bind(auth.sub, lessonId, lessonSlug(practice.title), `${lessonSlug(practice.title)}-practice`, `lesson-${lessonId}-practice`).all<{ score: number; total: number; createdAt: string }>(),
-    db.prepare("SELECT current_index AS currentIndex, answers_json AS answersJson, score, total, status, exercise_plan_json AS exercisePlanJson FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string }>(),
+    db.prepare("SELECT current_index AS currentIndex, answers_json AS answersJson, score, total, status, exercise_plan_json AS exercisePlanJson, speaking_attempt_ids_json AS speakingAttemptIdsJson FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string }>(),
     computeAcademicState(auth.sub),
   ]);
   const lessonState = (academic.lessonStates as LessonAcademicState[]).find((state: LessonAcademicState) => state.lessonId === lessonId);
@@ -45,6 +49,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const exercises = storedPlan.length ? storedPlan : typedExercises.map((exercise) => ({ ...exercise, options: parseStringList(exercise.optionsJson), accepted: parseStringList(exercise.acceptedJson), skills: parseStringList(exercise.skillsJson), variantKey: -1 }));
   const last = typedAttempts[0];
   const skills = Array.from(new Set(exercises.flatMap((exercise) => exercise.skills ?? [])));
-  const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers: parseList(sessionRow.answersJson), score: sessionRow.score, total: sessionRow.total, status: sessionRow.status } : undefined;
+  const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers: parseList(sessionRow.answersJson), speakingAttemptIds: parseSpeakingAttempts(sessionRow.speakingAttemptIdsJson), score: sessionRow.score, total: sessionRow.total, status: sessionRow.status } : undefined;
   return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, attemptsCount: typedAttempts.length, bestScore: typedAttempts.length ? Math.max(...typedAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session }, { headers: { "cache-control": "private, no-store" } });
 }
