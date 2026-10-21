@@ -1,4 +1,4 @@
-import { getD1 } from "../../../../db";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { requireAuth } from "../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { parsePracticePlan, parseStringList, type PracticeExerciseSource } from "../../../lib/practice-rotation";
@@ -26,24 +26,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   if (!lessonId) return Response.json({ error: "Prática inválida." }, { status: 400 });
-  const db = getD1();
-  const practice = await db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType, l.smart_rotation AS smartRotation,
-    l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
-    l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
-    m.level, m.title AS moduleTitle, s.title AS sectionTitle
-    FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id
-    WHERE l.id = ? AND l.status = 'Publicado' AND m.status = 'Publicado' LIMIT 1`).bind(lessonId).first<PracticeRow>();
-  if (!practice) return Response.json({ error: "Prática não encontrada." }, { status: 404 });
-  const [exerciseRows, attempts, sessionRow, academic] = await Promise.all([
-    db.prepare("SELECT id, exercise_type AS type, category, title, prompt, options_json AS optionsJson, correct_answer AS correct, accepted_answers_json AS acceptedJson, explanation, speech, audio_key AS audioKey, skills_json AS skillsJson, rotation_variants_json AS rotationVariantsJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<ExerciseRow>(),
-    db.prepare("SELECT score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? AND (lesson_id = ? OR lesson_slug = ? OR lesson_slug = ? OR lesson_slug = ?) ORDER BY created_at DESC").bind(auth.sub, lessonId, lessonSlug(practice.title), `${lessonSlug(practice.title)}-practice`, `lesson-${lessonId}-practice`).all<{ score: number; total: number; createdAt: string }>(),
-    db.prepare("SELECT current_index AS currentIndex, answers_json AS answersJson, score, total, status, exercise_plan_json AS exercisePlanJson, speaking_attempt_ids_json AS speakingAttemptIdsJson FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string }>(),
+  const db = getSupabase();
+  const lessonResult = await db.from("lessons").select("id,sectionId:section_id,title,duration,lessonType:lesson_type,smartRotation:smart_rotation,imageKey:thumbnail_key,imageMobileKey:thumbnail_mobile_key,imageFit:thumbnail_fit,imageZoom:thumbnail_zoom,imageOverlay:thumbnail_overlay,imagePositionX:thumbnail_position_x,imagePositionY:thumbnail_position_y").eq("id", lessonId).eq("status", "Publicado").maybeSingle();
+  const lesson = assertSupabase(lessonResult) as Omit<PracticeRow, "level" | "moduleTitle" | "sectionTitle"> | null;
+  if (!lesson) return Response.json({ error: "Prática não encontrada." }, { status: 404 });
+  const [sectionResult, exerciseResult, attemptResult, sessionResult, academic] = await Promise.all([
+    db.from("course_sections").select("id,moduleId:module_id,title").eq("id", lesson.sectionId).eq("status", "Publicado").maybeSingle(),
+    db.from("lesson_exercises").select("id,type:exercise_type,category,title,prompt,optionsJson:options_json,correct:correct_answer,acceptedJson:accepted_answers_json,explanation,speech,audioKey:audio_key,skillsJson:skills_json,rotationVariantsJson:rotation_variants_json").eq("lesson_id", lessonId).eq("status", "Publicado").order("position").order("id"),
+    db.from("exercise_attempts").select("lessonId:lesson_id,lessonSlug:lesson_slug,score,total,createdAt:created_at").eq("user_id", auth.sub).order("created_at", { ascending: false }),
+    db.from("practice_sessions").select("currentIndex:current_index,answersJson:answers_json,score,total,status,exercisePlanJson:exercise_plan_json,speakingAttemptIdsJson:speaking_attempt_ids_json").eq("user_id", auth.sub).eq("lesson_id", lessonId).maybeSingle(),
     computeAcademicState(auth.sub),
   ]);
+  const section = assertSupabase(sectionResult) as { id: number; moduleId: number; title: string } | null;
+  const moduleResult = section ? await db.from("course_modules").select("id,title,level").eq("id", section.moduleId).eq("status", "Publicado").maybeSingle() : { data: null, error: null };
+  const courseModule = assertSupabase(moduleResult) as { id: number; title: string; level: string } | null;
+  if (!section || !courseModule) return Response.json({ error: "Prática não encontrada." }, { status: 404 });
+  const practice: PracticeRow = { ...lesson, level: courseModule.level, moduleTitle: courseModule.title, sectionTitle: section.title };
   const lessonState = (academic.lessonStates as LessonAcademicState[]).find((state: LessonAcademicState) => state.lessonId === lessonId);
   if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula para liberar esta prática." }, { status: 403 });
-  const typedExercises = exerciseRows.results as ExerciseRow[];
-  const typedAttempts = attempts.results as { score: number; total: number; createdAt: string }[];
+  const typedExercises = (assertSupabase(exerciseResult) ?? []) as ExerciseRow[];
+  const slug = lessonSlug(practice.title);
+  const typedAttempts = ((assertSupabase(attemptResult) ?? []) as { lessonId?: number; lessonSlug: string; score: number; total: number; createdAt: string }[]).filter(attempt => attempt.lessonId === lessonId || attempt.lessonSlug === slug || attempt.lessonSlug === `${slug}-practice` || attempt.lessonSlug === `lesson-${lessonId}-practice`);
+  const sessionRow = assertSupabase(sessionResult) as { currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string } | null;
   if (!typedExercises.length) return Response.json({ error: "Esta aula ainda não tem exercícios publicados." }, { status: 404 });
   const storedPlan = parsePracticePlan(sessionRow?.exercisePlanJson);
   const exercises = storedPlan.length ? storedPlan : typedExercises.map((exercise) => ({ ...exercise, options: parseStringList(exercise.optionsJson), accepted: parseStringList(exercise.acceptedJson), skills: parseStringList(exercise.skillsJson), variantKey: -1 }));

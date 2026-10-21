@@ -1,4 +1,4 @@
-import { getD1 } from "../../../db";
+import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../lib/auth";
 import { computeAcademicState } from "../../lib/academic";
 import { evaluateSpeaking, transcribeSpeech } from "../../lib/speech";
@@ -25,28 +25,32 @@ export async function POST(request: Request) {
     if (audio.size > MAX_SIZE) return Response.json({ error: "A gravação ultrapassou o limite de 6 MB." }, { status: 413 });
     if (!Number.isFinite(duration) || duration < 0.7) return Response.json({ error: "A gravação ficou muito curta. Fale a frase completa." }, { status: 400 });
     if (duration > MAX_DURATION_SECONDS) return Response.json({ error: "Grave uma resposta de até 60 segundos." }, { status: 413 });
-    const db = getD1();
-    const exercise = await db.prepare("SELECT e.id, e.lesson_id AS lessonId, e.exercise_type AS type, e.prompt, e.options_json AS optionsJson, e.correct_answer AS correct, e.accepted_answers_json AS acceptedJson FROM lesson_exercises e JOIN lessons l ON l.id = e.lesson_id WHERE e.id = ? AND e.status = 'Publicado' AND l.status = 'Publicado' LIMIT 1").bind(exerciseId).first<{ id: number; lessonId: number; type: string; prompt: string; optionsJson: string | null; correct: string; acceptedJson: string | null }>();
+    const db = getSupabase();
+    const exercise = assertSupabase(await db.from("lesson_exercises").select("id,lessonId:lesson_id,type:exercise_type,prompt,optionsJson:options_json,correct:correct_answer,acceptedJson:accepted_answers_json").eq("id", exerciseId).eq("status", "Publicado").maybeSingle()) as { id: number; lessonId: number; type: string; prompt: string; optionsJson: string | null; correct: string; acceptedJson: string | null } | null;
     if (!exercise || !["speaking", "choice_speaking"].includes(exercise.type)) return Response.json({ error: "Este exercício não possui etapa de speaking." }, { status: 404 });
+    const lesson = assertSupabase(await db.from("lessons").select("id").eq("id", exercise.lessonId).eq("status", "Publicado").maybeSingle());
+    if (!lesson) return Response.json({ error: "Este exercício não possui etapa de speaking." }, { status: 404 });
     const academic = await computeAcademicState(auth.sub);
     const lessonState = academic.lessonStates.find(item => item.lessonId === exercise.lessonId);
     if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Esta prática ainda não está liberada." }, { status: 403 });
-    const session = await db.prepare("SELECT id, exercise_plan_json AS planJson FROM practice_sessions WHERE user_id = ? AND lesson_id = ? AND status = 'active' LIMIT 1").bind(auth.sub, exercise.lessonId).first<{ id: number; planJson: string }>();
+    const session = assertSupabase(await db.from("practice_sessions").select("id,planJson:exercise_plan_json").eq("user_id", auth.sub).eq("lesson_id", exercise.lessonId).eq("status", "active").maybeSingle()) as { id: number; planJson: string } | null;
     if (!session) return Response.json({ error: "Inicie a prática antes de gravar." }, { status: 409 });
     const plan = JSON.parse(session.planJson || "[]") as { id?: number }[];
     if (!plan.some(item => item.id === exercise.id)) return Response.json({ error: "O exercício não pertence a esta tentativa." }, { status: 403 });
-    const recent = await db.prepare("SELECT COUNT(*) AS count FROM speaking_attempts WHERE user_id = ? AND created_at >= ?").bind(auth.sub, new Date(Date.now() - 60_000).toISOString()).first<{ count: number }>();
-    if (Number(recent?.count ?? 0) >= 10) return Response.json({ error: "Aguarde um minuto antes de enviar novas gravações." }, { status: 429 });
+    const recent = await db.from("speaking_attempts").select("id", { count: "exact", head: true }).eq("user_id", auth.sub).gte("created_at", new Date(Date.now() - 60_000).toISOString());
+    if (recent.error) throw new Error(`Supabase: ${recent.error.message}`);
+    if (Number(recent.count ?? 0) >= 10) return Response.json({ error: "Aguarde um minuto antes de enviar novas gravações." }, { status: 429 });
     const options = parseList(exercise.optionsJson);
     const target = exercise.type === "choice_speaking" && options.includes(requestedTarget) ? requestedTarget : exercise.correct;
     const accepted = exercise.type === "choice_speaking" ? [] : parseList(exercise.acceptedJson);
     const transcribed = await transcribeSpeech(audio);
     const result = await evaluateSpeaking(transcribed.text, target, accepted, exercise.prompt, transcribed.provider);
-    const previous = await db.prepare("SELECT COUNT(*) AS count FROM speaking_attempts WHERE user_id = ? AND exercise_id = ?").bind(auth.sub, exercise.id).first<{ count: number }>();
-    const attemptNumber = Number(previous?.count ?? 0) + 1;
-    const inserted = await db.prepare("INSERT INTO speaking_attempts (user_id, lesson_id, exercise_id, practice_session_id, attempt_number, transcription, expected_text, conceptual_status, conceptual_score, vocabulary_score, grammar_score, pronunciation_score, fluency_score, result_json, provider, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'completed', ?)")
-      .bind(auth.sub, exercise.lessonId, exercise.id, session.id, attemptNumber, result.transcription, target, result.intent.status, result.intent.score, result.vocabulary.score, result.grammar.score, JSON.stringify(result), result.provider, new Date().toISOString()).run();
-    return Response.json({ attemptId: inserted.meta.last_row_id, attemptNumber, result }, { headers: { "cache-control": "private, no-store" } });
+    const previous = await db.from("speaking_attempts").select("id", { count: "exact", head: true }).eq("user_id", auth.sub).eq("exercise_id", exercise.id);
+    if (previous.error) throw new Error(`Supabase: ${previous.error.message}`);
+    const attemptNumber = Number(previous.count ?? 0) + 1;
+    const inserted = assertSupabase(await db.from("speaking_attempts").insert({ user_id: auth.sub, lesson_id: exercise.lessonId, exercise_id: exercise.id, practice_session_id: session.id, attempt_number: attemptNumber, transcription: result.transcription, expected_text: target, conceptual_status: result.intent.status, conceptual_score: result.intent.score, vocabulary_score: result.vocabulary.score, grammar_score: result.grammar.score, pronunciation_score: null, fluency_score: null, result_json: JSON.stringify(result), provider: result.provider, status: "completed", created_at: new Date().toISOString() }).select("id").single()) as { id: number } | null;
+    if (!inserted) throw new Error("O Supabase não retornou a tentativa criada.");
+    return Response.json({ attemptId: inserted.id, attemptNumber, result }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (code === "SPEECH_NOT_CONFIGURED") return Response.json({ error: "O serviço de transcrição ainda não foi configurado pelo administrador." }, { status: 503 });

@@ -62,9 +62,9 @@ test("creates real login accounts for admin-managed students", async () => {
     source("app/api/admin/route.ts"),
     source("app/components/AdminPanel.tsx"),
   ]);
-  assert.match(adminRoute, /INSERT INTO user_accounts/);
+  assert.match(adminRoute, /from\("user_accounts"\)\.insert/);
   assert.match(adminRoute, /action === "resetStudentPassword"/);
-  assert.match(adminRoute, /UPDATE auth_sessions SET revoked_at/);
+  assert.match(adminRoute, /from\("auth_sessions"\)\.update/);
   assert.match(panel, /Redefinir senha/);
   assert.match(panel, /Troca pendente/);
 });
@@ -87,6 +87,33 @@ test("keeps schema maintenance out of request hot paths", async () => {
   ]);
   assert.doesNotMatch(auth, /CREATE TABLE|PRAGMA table_info|ALTER TABLE/);
   assert.doesNotMatch(admin, /CREATE TABLE|PRAGMA table_info|ALTER TABLE/);
-  assert.match(auth, /return getD1\(\)/);
-  assert.match(admin, /const db = getD1\(\)/);
+  assert.match(auth, /getSupabase\(\)\.from\("user_accounts"\)/);
+  assert.match(admin, /const db = getSupabase\(\)/);
+});
+
+test("writes new media to private Supabase Storage with legacy R2 fallback", async () => {
+  const [storage, videos, storageMigration, panel, migration] = await Promise.all([
+    source("app/lib/storage.ts"),
+    source("app/api/videos/route.ts"),
+    source("app/api/admin/storage-migration/route.ts"),
+    source("app/components/AdminPanel.tsx"),
+    source("supabase/migrations/20261020120000_complete_supabase_cutover.sql"),
+  ]);
+  assert.match(storage, /getSupabase\(\)\.storage\.from\(getStorageBucket\(\)\)\.upload/);
+  assert.match(storage, /legacy\?\.get/);
+  assert.doesNotMatch(storage, /\.put\(/);
+  assert.match(storageMigration, /Arquivo não referenciado pelo curso/);
+  assert.match(storageMigration, /Number\(copied\.size\) !== legacy\.size/);
+  assert.match(videos, /createSignedUploadUrl/);
+  assert.match(panel, /new Upload\(file/);
+  assert.match(panel, /"x-signature"/);
+  assert.match(migration, /values \('course-media', 'course-media', false/);
+});
+
+test("copies every D1 table to Supabase and verifies source keys", async () => {
+  const migration = await source("app/api/internal/database-migration/route.ts");
+  assert.match(migration, /"speaking_attempts"/);
+  assert.match(migration, /SELECT \* FROM \$\{table\.name\}/);
+  assert.match(migration, /upsert\(rows, \{ onConflict: table\.conflict \}\)/);
+  assert.match(migration, /não foram confirmados no Supabase/);
 });

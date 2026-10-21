@@ -1,4 +1,4 @@
-import { getD1 } from "../../db";
+import { assertSupabase, getSupabase } from "../../db/supabase";
 import { getNextLearningStep, getWeakSkills, masteryReached, MASTERY_THRESHOLD, parseAnswerResults, scorePercentage, type SkillResult } from "./learning-progress";
 
 export type LessonAcademicState = {
@@ -60,24 +60,31 @@ type ExamRow = { id: number; sectionId: number; title: string; passScore: number
 type ExamAttemptRow = { examId: number; passed: number; percentage: number; answersJson: string };
 
 export async function computeAcademicState(userId: number): Promise<{ lessonStates: LessonAcademicState[]; sectionStates: SectionAcademicState[]; moduleStates: ModuleAcademicState[] }> {
-  const db = getD1();
-  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, examAttemptResult, videoItemsResult] = await db.batch([
-    db.prepare("SELECT id, position FROM course_modules WHERE status = 'Publicado' ORDER BY position, id"),
-    db.prepare("SELECT id, module_id AS moduleId, position FROM course_sections WHERE status = 'Publicado' ORDER BY module_id, position, id"),
-    db.prepare("SELECT id, section_id AS sectionId, position, video_key AS videoKey FROM lessons WHERE status = 'Publicado' ORDER BY section_id, position, id"),
-    db.prepare("SELECT lesson_id AS lessonId, status, progress_percent AS progressPercent, position_seconds AS positionSeconds, duration_seconds AS durationSeconds FROM video_progress WHERE user_id = ?").bind(userId),
-    db.prepare("SELECT lesson_id AS lessonId, score, total, answers_json AS answersJson FROM exercise_attempts WHERE user_id = ? AND lesson_id IS NOT NULL ORDER BY created_at DESC, id DESC").bind(userId),
-    db.prepare("SELECT lesson_id AS lessonId, COUNT(*) AS exerciseCount FROM lesson_exercises WHERE status = 'Publicado' GROUP BY lesson_id"),
-    db.prepare("SELECT e.id, e.section_id AS sectionId, e.title, e.pass_score AS passScore, COUNT(q.id) AS questionCount FROM section_exams e JOIN section_exam_questions q ON q.exam_id = e.id AND q.status = 'Publicado' WHERE e.status = 'Publicado' GROUP BY e.id ORDER BY e.position, e.id"),
-    db.prepare("SELECT exam_id AS examId, passed, percentage, answers_json AS answersJson FROM section_exam_attempts WHERE user_id = ? ORDER BY created_at DESC, id DESC").bind(userId),
-    db.prepare("SELECT v.id, v.lesson_id AS lessonId, p.completed, p.position_seconds AS positionSeconds, p.duration_seconds AS durationSeconds, p.updated_at AS updatedAt FROM lesson_videos v LEFT JOIN video_item_progress p ON p.video_id = v.id AND p.user_id = ? ORDER BY v.position, v.id").bind(userId),
+  const db = getSupabase();
+  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, questionResult, examAttemptResult, videoItemsResult, videoItemProgressResult] = await Promise.all([
+    db.from("course_modules").select("id,position").eq("status", "Publicado").order("position").order("id"),
+    db.from("course_sections").select("id,moduleId:module_id,position").eq("status", "Publicado").order("module_id").order("position").order("id"),
+    db.from("lessons").select("id,sectionId:section_id,position,videoKey:video_key").eq("status", "Publicado").order("section_id").order("position").order("id"),
+    db.from("video_progress").select("lessonId:lesson_id,status,progressPercent:progress_percent,positionSeconds:position_seconds,durationSeconds:duration_seconds").eq("user_id", userId),
+    db.from("exercise_attempts").select("lessonId:lesson_id,score,total,answersJson:answers_json").eq("user_id", userId).not("lesson_id", "is", null).order("created_at", { ascending: false }).order("id", { ascending: false }),
+    db.from("lesson_exercises").select("lessonId:lesson_id").eq("status", "Publicado"),
+    db.from("section_exams").select("id,sectionId:section_id,title,passScore:pass_score,position").eq("status", "Publicado").order("position").order("id"),
+    db.from("section_exam_questions").select("examId:exam_id").eq("status", "Publicado"),
+    db.from("section_exam_attempts").select("examId:exam_id,passed,percentage,answersJson:answers_json").eq("user_id", userId).order("created_at", { ascending: false }).order("id", { ascending: false }),
+    db.from("lesson_videos").select("id,lessonId:lesson_id,position").order("position").order("id"),
+    db.from("video_item_progress").select("videoId:video_id,completed,positionSeconds:position_seconds,durationSeconds:duration_seconds,updatedAt:updated_at").eq("user_id", userId),
   ]);
-  const modules = moduleResult.results as ModuleRow[];
-  const sections = sectionResult.results as SectionRow[];
-  const lessons = lessonResult.results as LessonRow[];
-  const videos = new Map((videoResult.results as VideoRow[]).map((row) => [row.lessonId, row]));
+  const modules = assertSupabase(moduleResult) as ModuleRow[];
+  const sections = assertSupabase(sectionResult) as SectionRow[];
+  const lessons = assertSupabase(lessonResult) as LessonRow[];
+  const videos = new Map((assertSupabase(videoResult) as VideoRow[]).map((row) => [row.lessonId, row]));
+  const itemProgress = new Map((assertSupabase(videoItemProgressResult) as { videoId: number; completed: number; positionSeconds: number; durationSeconds: number; updatedAt: string }[]).map((row) => [row.videoId, row]));
   const groups = new Map<number, { id: number; lessonId: number; completed: number | null; positionSeconds: number | null; durationSeconds: number | null; updatedAt: string | null }[]>();
-  for (const row of videoItemsResult.results as { id: number; lessonId: number; completed: number | null; positionSeconds: number | null; durationSeconds: number | null; updatedAt: string | null }[]) groups.set(row.lessonId, [...(groups.get(row.lessonId) ?? []), row]);
+  for (const video of assertSupabase(videoItemsResult) as { id: number; lessonId: number }[]) {
+    const progress = itemProgress.get(video.id);
+    const row = { id: video.id, lessonId: video.lessonId, completed: progress?.completed ?? null, positionSeconds: progress?.positionSeconds ?? null, durationSeconds: progress?.durationSeconds ?? null, updatedAt: progress?.updatedAt ?? null };
+    groups.set(row.lessonId, [...(groups.get(row.lessonId) ?? []), row]);
+  }
   for (const [lessonId, items] of groups) {
     const latest = items.filter(item => item.updatedAt).sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
     const completed = items.filter(item => item.completed === 1).length;
@@ -85,11 +92,14 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
     videos.set(lessonId, { lessonId, status: completed === items.length ? "completed" : latest ? "watching" : "not_started", progressPercent: percent, positionSeconds: latest?.positionSeconds ?? 0, durationSeconds: latest?.durationSeconds ?? 0 });
   }
   const attempts = new Map<number, AttemptRow[]>();
-  for (const row of attemptResult.results as AttemptRow[]) attempts.set(row.lessonId, [...(attempts.get(row.lessonId) ?? []), row]);
-  const exerciseCounts = new Map((exerciseResult.results as ExerciseCountRow[]).map((row) => [row.lessonId, Number(row.exerciseCount)]));
-  const exams = new Map((examResult.results as ExamRow[]).map((row) => [row.sectionId, { ...row, questionCount: Number(row.questionCount) }]));
+  for (const row of assertSupabase(attemptResult) as AttemptRow[]) attempts.set(row.lessonId, [...(attempts.get(row.lessonId) ?? []), row]);
+  const exerciseCounts = new Map<number, number>();
+  for (const row of assertSupabase(exerciseResult) as { lessonId: number }[]) exerciseCounts.set(row.lessonId, (exerciseCounts.get(row.lessonId) ?? 0) + 1);
+  const questionCounts = new Map<number, number>();
+  for (const row of assertSupabase(questionResult) as { examId: number }[]) questionCounts.set(row.examId, (questionCounts.get(row.examId) ?? 0) + 1);
+  const exams = new Map((assertSupabase(examResult) as Omit<ExamRow, "questionCount">[]).filter((row) => questionCounts.has(row.id)).map((row) => [row.sectionId, { ...row, questionCount: questionCounts.get(row.id) ?? 0 }]));
   const examAttempts = new Map<number, ExamAttemptRow[]>();
-  for (const row of examAttemptResult.results as ExamAttemptRow[]) examAttempts.set(row.examId, [...(examAttempts.get(row.examId) ?? []), row]);
+  for (const row of assertSupabase(examAttemptResult) as ExamAttemptRow[]) examAttempts.set(row.examId, [...(examAttempts.get(row.examId) ?? []), row]);
   const lessonStates: LessonAcademicState[] = [];
   const sectionStates: SectionAcademicState[] = [];
   const moduleStates: ModuleAcademicState[] = [];

@@ -1,4 +1,4 @@
-import { getD1 } from "../../../db";
+import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { requireAuth } from "../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../lib/academic";
 
@@ -19,30 +19,32 @@ function lessonSlug(title: string) {
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof Response) return auth;
-  const db = getD1();
-  const [practiceData, academic] = await Promise.all([
-    db.batch([
-      db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules WHERE status = 'Publicado' ORDER BY position, id"),
-      db.prepare("SELECT s.id, s.module_id AS moduleId, s.title, s.position, s.cover_key AS imageKey, s.cover_mobile_key AS imageMobileKey, s.cover_fit AS imageFit, s.cover_zoom AS imageZoom, s.cover_overlay AS imageOverlay, s.cover_position_x AS imagePositionX, s.cover_position_y AS imagePositionY FROM course_sections s JOIN course_modules m ON m.id = s.module_id WHERE m.status = 'Publicado' ORDER BY s.module_id, s.position, s.id"),
-      db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.duration, l.lesson_type AS lessonType, l.smart_rotation AS smartRotation,
-        l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
-        l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
-        m.level, m.title AS moduleTitle, s.title AS sectionTitle, COUNT(e.id) AS exerciseCount,
-        GROUP_CONCAT(e.skills_json, '||') AS skillsJson
-        FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id
-        JOIN lesson_exercises e ON e.lesson_id = l.id AND e.status = 'Publicado'
-        WHERE l.status = 'Publicado' AND m.status = 'Publicado'
-        GROUP BY l.id ORDER BY m.position, s.position, l.position, l.id`),
-      db.prepare("SELECT lesson_id AS lessonId, lesson_slug AS lessonSlug, score, total, created_at AS createdAt FROM exercise_attempts WHERE user_id = ? ORDER BY created_at DESC").bind(auth.sub),
-      db.prepare("SELECT lesson_id AS lessonId, current_index AS currentIndex, status FROM practice_sessions WHERE user_id = ?").bind(auth.sub),
-    ]),
+  const db = getSupabase();
+  const [moduleResult, sectionResult, lessonResult, exerciseResult, attemptResult, sessionResult, academic] = await Promise.all([
+    db.from("course_modules").select("id,title,level,description,status,position,imageKey:cover_key,imageMobileKey:cover_mobile_key,imageFit:cover_fit,imageZoom:cover_zoom,imageOverlay:cover_overlay,imagePositionX:cover_position_x,imagePositionY:cover_position_y").eq("status", "Publicado").order("position").order("id"),
+    db.from("course_sections").select("id,moduleId:module_id,title,position,imageKey:cover_key,imageMobileKey:cover_mobile_key,imageFit:cover_fit,imageZoom:cover_zoom,imageOverlay:cover_overlay,imagePositionX:cover_position_x,imagePositionY:cover_position_y").eq("status", "Publicado").order("module_id").order("position").order("id"),
+    db.from("lessons").select("id,sectionId:section_id,title,duration,lessonType:lesson_type,smartRotation:smart_rotation,imageKey:thumbnail_key,imageMobileKey:thumbnail_mobile_key,imageFit:thumbnail_fit,imageZoom:thumbnail_zoom,imageOverlay:thumbnail_overlay,imagePositionX:thumbnail_position_x,imagePositionY:thumbnail_position_y,position").eq("status", "Publicado").order("position").order("id"),
+    db.from("lesson_exercises").select("lessonId:lesson_id,skillsJson:skills_json").eq("status", "Publicado"),
+    db.from("exercise_attempts").select("lessonId:lesson_id,lessonSlug:lesson_slug,score,total,createdAt:created_at").eq("user_id", auth.sub).order("created_at", { ascending: false }),
+    db.from("practice_sessions").select("lessonId:lesson_id,currentIndex:current_index,status").eq("user_id", auth.sub),
     computeAcademicState(auth.sub),
   ]);
-  const [modules, sections, practiceRows, attempts, sessions] = practiceData;
-  const sessionByLesson = new Map((sessions.results as SessionRow[]).map((session) => [session.lessonId, session]));
-  const attemptRows = attempts.results as AttemptRow[];
+  const modules = assertSupabase(moduleResult) ?? [];
+  const sections = assertSupabase(sectionResult) ?? [];
+  const sectionById = new Map((sections as { id: number; moduleId: number; title: string }[]).map(section => [section.id, section]));
+  const moduleById = new Map((modules as { id: number; title: string; level: string }[]).map(module => [module.id, module]));
+  const exercisesByLesson = new Map<number, { skillsJson?: string }[]>();
+  for (const exercise of (assertSupabase(exerciseResult) ?? []) as { lessonId: number; skillsJson?: string }[]) exercisesByLesson.set(exercise.lessonId, [...(exercisesByLesson.get(exercise.lessonId) ?? []), exercise]);
+  const practiceRows = ((assertSupabase(lessonResult) ?? []) as Omit<PracticeRow, "exerciseCount" | "skillsJson" | "level" | "moduleTitle" | "sectionTitle">[]).flatMap(lesson => {
+    const section = sectionById.get(lesson.sectionId);
+    const courseModule = section ? moduleById.get(section.moduleId) : undefined;
+    const exercises = exercisesByLesson.get(lesson.id) ?? [];
+    return section && courseModule && exercises.length ? [{ ...lesson, level: courseModule.level, moduleTitle: courseModule.title, sectionTitle: section.title, exerciseCount: exercises.length, skillsJson: exercises.map(item => item.skillsJson ?? "[]").join("||") }] : [];
+  });
+  const sessionByLesson = new Map(((assertSupabase(sessionResult) ?? []) as SessionRow[]).map((session) => [session.lessonId, session]));
+  const attemptRows = (assertSupabase(attemptResult) ?? []) as AttemptRow[];
   const stateByLesson = new Map<number, LessonAcademicState>((academic.lessonStates as LessonAcademicState[]).map((state: LessonAcademicState) => [state.lessonId, state]));
-  const practices = (practiceRows.results as PracticeRow[]).filter((row) => {
+  const practices = (practiceRows as PracticeRow[]).filter((row) => {
     const state = stateByLesson.get(row.id);
     return Boolean(state?.unlocked && state.videoStatus === "completed");
   }).map((row) => {
@@ -53,5 +55,5 @@ export async function GET(request: Request) {
     const skills = Array.from(new Set((row.skillsJson ?? "").split("||").flatMap((value) => stringList(value))));
     return { ...row, smartRotation: Boolean(row.smartRotation), exerciseCount: Number(row.exerciseCount), estimatedMinutes: Math.max(5, Number(row.exerciseCount) * 2), skills, attemptsCount: lessonAttempts.length, bestScore: lessonAttempts.length ? Math.max(...lessonAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, currentIndex: session?.currentIndex, sessionStatus: session?.status };
   });
-  return Response.json({ modules: modules.results, sections: sections.results, practices }, { headers: { "cache-control": "private, no-store" } });
+  return Response.json({ modules, sections, practices }, { headers: { "cache-control": "private, no-store" } });
 }

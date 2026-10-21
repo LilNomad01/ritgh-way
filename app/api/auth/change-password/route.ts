@@ -1,4 +1,5 @@
-import { assertSameOrigin, ensureAuthSchema, issueSession, passwordPolicyError, randomSecret, requireAuth, verifyPassword, hashPassword } from "../../../lib/auth";
+import { assertSameOrigin, issueSession, passwordPolicyError, randomSecret, requireAuth, verifyPassword, hashPassword } from "../../../lib/auth";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,9 @@ export async function POST(request: Request) {
     const passwordError = passwordPolicyError(newPassword);
     if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
 
-    const db = await ensureAuthSchema();
-    const account = await db.prepare("SELECT password_hash AS passwordHash, password_salt AS passwordSalt, token_version AS tokenVersion FROM user_accounts WHERE id = ? LIMIT 1")
-      .bind(user.sub).first<{ passwordHash: string; passwordSalt: string; tokenVersion: number }>();
+    const db = getSupabase();
+    const rawAccount = assertSupabase(await db.from("user_accounts").select("password_hash,password_salt,token_version").eq("id", user.sub).maybeSingle());
+    const account = rawAccount ? { passwordHash: rawAccount.password_hash, passwordSalt: rawAccount.password_salt, tokenVersion: rawAccount.token_version } : null;
     if (!account || !await verifyPassword(currentPassword, account.passwordSalt, account.passwordHash)) {
       return Response.json({ error: "A senha atual está incorreta." }, { status: 401 });
     }
@@ -28,11 +29,11 @@ export async function POST(request: Request) {
     const passwordHash = await hashPassword(newPassword, salt);
     const tokenVersion = account.tokenVersion + 1;
     const now = new Date().toISOString();
-    await db.batch([
-      db.prepare("UPDATE user_accounts SET password_hash = ?, password_salt = ?, token_version = ?, must_change_password = 0, updated_at = ? WHERE id = ?")
-        .bind(passwordHash, salt, tokenVersion, now, user.sub),
-      db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, user.sub),
+    const [updated, revoked] = await Promise.all([
+      db.from("user_accounts").update({ password_hash: passwordHash, password_salt: salt, token_version: tokenVersion, must_change_password: 0, updated_at: now }).eq("id", user.sub),
+      db.from("auth_sessions").update({ revoked_at: now }).eq("user_id", user.sub).is("revoked_at", null),
     ]);
+    assertSupabase(updated); assertSupabase(revoked);
 
     const session = await issueSession(request, { id: user.sub, email: user.email, fullName: user.fullName, role: user.role, tokenVersion });
     const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });

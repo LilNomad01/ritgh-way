@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Upload } from "tus-js-client";
 import { MaterialIcon } from "./MaterialIcon";
 import { VideoLibraryManager } from "./VideoLibraryManager";
 import { ExerciseEditor } from "./ExerciseEditor";
@@ -18,8 +19,7 @@ type Data = { students: Student[]; modules: Module[]; sections: Section[]; lesso
 type Entity = "student" | "module" | "section" | "lesson" | "exercise" | "exam" | "examQuestion";
 
 const emptyData: Data = { students: [], modules: [], sections: [], lessons: [], exercises: [], exams: [], examQuestions: [] };
-const VIDEO_CHUNK_SIZE = 8 * 1024 * 1024;
-const ARTWORK_CHUNK_SIZE = 5 * 1024 * 1024;
+const VIDEO_CHUNK_SIZE = 6 * 1024 * 1024;
 const MAX_ARTWORK_SOURCE_SIZE = 25 * 1024 * 1024;
 const MAX_ARTWORK_DIMENSION = 2400;
 const MAX_MOBILE_ARTWORK_DIMENSION = 1800;
@@ -304,33 +304,15 @@ export function AdminPanel() {
     setArtworkUploading(true);
     setArtworkUploadProgress(2);
     setError("");
-    let pendingUpload: { key: string; uploadId: string } | null = null;
     try {
       const device = artworkDevice;
       const optimized = await optimizeArtwork(file, device);
       setArtworkUploadProgress(12);
       const entity = artworkEditor.entity;
       const id = artworkEditor.item.id;
-      const init = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "init", entity, device, id, name: optimized.name, type: optimized.type, size: optimized.size }) });
-      const initResult = await readResponse(init) as { key?: string; uploadId?: string; chunkSize?: number; error?: string };
-      if (!init.ok || !initResult.key || !initResult.uploadId) throw new Error(init.status === 413 ? "A imagem ainda está grande demais. Escolha uma imagem de até 25 MB." : initResult.error ?? "Não foi possível iniciar o envio da capa.");
-      pendingUpload = { key: initResult.key, uploadId: initResult.uploadId };
-      const chunkSize = Number(initResult.chunkSize) || ARTWORK_CHUNK_SIZE;
-      const parts: { partNumber: number; etag: string }[] = [];
-
-      for (let start = 0, partNumber = 1; start < optimized.size; start += chunkSize, partNumber += 1) {
-        const chunk = optimized.slice(start, Math.min(start + chunkSize, optimized.size));
-        const response = await securedFetch(`/api/media?action=part&key=${encodeURIComponent(initResult.key)}&uploadId=${encodeURIComponent(initResult.uploadId)}&partNumber=${partNumber}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: chunk });
-        const result = await readResponse(response) as { part?: { partNumber: number; etag: string }; error?: string };
-        if (!response.ok || !result.part) throw new Error(response.status === 413 ? "Uma parte da imagem ultrapassou o limite de envio." : result.error ?? "Falha ao enviar uma parte da imagem.");
-        parts.push(result.part);
-        setArtworkUploadProgress(12 + Math.round((Math.min(start + chunkSize, optimized.size) / optimized.size) * 78));
-      }
-
-      const complete = await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", entity, device, id, key: initResult.key, uploadId: initResult.uploadId, parts }) });
+      const complete = await securedFetch(`/api/media?entity=${entity}&device=${device}&id=${id}`, { method: "POST", headers: { "content-type": optimized.type, "x-file-name": encodeURIComponent(optimized.name) }, body: optimized });
       const completeResult = await readResponse(complete) as { key?: string; error?: string };
-      if (!complete.ok || !completeResult.key) throw new Error(completeResult.error ?? "Não foi possível finalizar a capa.");
-      pendingUpload = null;
+      if (!complete.ok || !completeResult.key) throw new Error(complete.status === 413 ? "A imagem ainda está grande demais. Escolha uma imagem de até 25 MB." : completeResult.error ?? "Não foi possível finalizar a capa.");
       setArtworkUploadProgress(100);
       const imageProperty = device === "mobile" ? "imageMobileKey" : "imageKey";
       setArtworkEditor((current) => current ? { ...current, item: { ...current.item, [imageProperty]: completeResult.key } } : null);
@@ -340,9 +322,6 @@ export function AdminPanel() {
         return { ...current, lessons: current.lessons.map((item) => item.id === id ? { ...item, [imageProperty]: completeResult.key } : item) };
       });
     } catch (uploadError) {
-      if (pendingUpload) {
-        await securedFetch("/api/media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "abort", key: pendingUpload.key, uploadId: pendingUpload.uploadId }) }).catch(() => undefined);
-      }
       setError(uploadError instanceof Error ? uploadError.message : "Não foi possível enviar a capa.");
     } finally {
       setArtworkUploading(false);
@@ -369,28 +348,36 @@ export function AdminPanel() {
     setUploading(true);
     setUploadProgress(0);
     setUploadMessage("");
+    let pendingKey = "";
     try {
       if (!file.type.startsWith("video/")) throw new Error("O arquivo precisa ser um vídeo.");
       const init = await securedFetch("/api/videos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "init", lessonId: Number(uploadLesson), name: file.name, type: file.type, size: file.size }) });
-      const initResult = await readResponse(init) as { key?: string; uploadId?: string; chunkSize?: number; error?: string };
-      if (!init.ok || !initResult.key || !initResult.uploadId) throw new Error(initResult.error ?? "Não foi possível iniciar o upload.");
-      const chunkSize = Number(initResult.chunkSize) || VIDEO_CHUNK_SIZE;
-      const parts: { partNumber: number; etag: string }[] = [];
-      for (let start = 0, partNumber = 1; start < file.size; start += chunkSize, partNumber += 1) {
-        const chunk = file.slice(start, Math.min(start + chunkSize, file.size));
-        const response = await securedFetch(`/api/videos?action=part&key=${encodeURIComponent(initResult.key)}&uploadId=${encodeURIComponent(initResult.uploadId)}&partNumber=${partNumber}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: chunk });
-        const result = await readResponse(response) as { part?: { partNumber: number; etag: string }; error?: string };
-        if (!response.ok || !result.part) throw new Error(result.error ?? "Falha ao enviar uma parte do vídeo.");
-        parts.push(result.part);
-        setUploadProgress(Math.round((Math.min(start + chunkSize, file.size) / file.size) * 100));
-      }
-      const complete = await securedFetch("/api/videos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", lessonId: Number(uploadLesson), key: initResult.key, uploadId: initResult.uploadId, parts, name: file.name, size: file.size }) });
+      const initResult = await readResponse(init) as { key?: string; token?: string; endpoint?: string; bucket?: string; contentType?: string; error?: string };
+      if (!init.ok || !initResult.key || !initResult.token || !initResult.endpoint || !initResult.bucket) throw new Error(initResult.error ?? "Não foi possível iniciar o upload.");
+      pendingKey = initResult.key;
+      await new Promise<void>((resolve, reject) => {
+        new Upload(file, {
+          endpoint: initResult.endpoint,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          headers: { "x-signature": initResult.token! },
+          chunkSize: VIDEO_CHUNK_SIZE,
+          uploadDataDuringCreation: true,
+          removeFingerprintOnSuccess: true,
+          metadata: { bucketName: initResult.bucket!, objectName: initResult.key!, contentType: initResult.contentType || file.type, cacheControl: "3600" },
+          onProgress: (sent, total) => setUploadProgress(Math.round((sent / total) * 100)),
+          onError: reject,
+          onSuccess: () => resolve(),
+        }).start();
+      });
+      const complete = await securedFetch("/api/videos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "complete", lessonId: Number(uploadLesson), key: initResult.key, name: file.name, size: file.size }) });
       const completeResult = await readResponse(complete);
       if (!complete.ok) throw new Error(completeResult.error ?? "Não foi possível finalizar o upload.");
+      pendingKey = "";
       setUploadMessage("Vídeo enviado e vinculado à aula com sucesso.");
       if (fileRef.current) fileRef.current.value = "";
       await load();
     } catch (uploadError) {
+      if (pendingKey) await securedFetch("/api/videos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "abort", key: pendingKey }) }).catch(() => undefined);
       setUploadMessage(uploadError instanceof Error ? uploadError.message : "Falha no upload.");
     } finally {
       setUploading(false);

@@ -1,4 +1,4 @@
-import { getD1 } from "../../../../../db";
+import { assertSupabase, getSupabase } from "../../../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
 import { assessAnswer } from "../../../../lib/exercise-answers";
@@ -22,29 +22,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   const payload = await request.json() as { action?: "start" | "progress" | "complete"; reset?: boolean; answers?: string[]; speakingAttemptIds?: Record<string, number>; score?: number; total?: number; currentIndex?: number };
-  const db = getD1();
-  const lesson = await db.prepare("SELECT l.id, l.title, l.smart_rotation AS smartRotation FROM lessons l WHERE l.id = ? AND l.status = 'Publicado' LIMIT 1").bind(lessonId).first<{ id: number; title: string; smartRotation: number | boolean }>();
+  const db = getSupabase();
+  const lesson = assertSupabase(await db.from("lessons").select("id,title,smartRotation:smart_rotation").eq("id", lessonId).eq("status", "Publicado").maybeSingle()) as { id: number; title: string; smartRotation: number | boolean } | null;
   if (!lesson) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
   const academic = await computeAcademicState(auth.sub);
   const lessonState = academic.lessonStates.find((state: LessonAcademicState) => state.lessonId === lessonId);
   if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula antes de iniciar os exercícios." }, { status: 403 });
   const now = new Date().toISOString();
-  const [exerciseResult, current] = await Promise.all([
-    db.prepare("SELECT id, exercise_type AS type, category, title, prompt, options_json AS optionsJson, correct_answer AS correct, accepted_answers_json AS acceptedJson, explanation, speech, audio_key AS audioKey, skills_json AS skillsJson, rotation_variants_json AS rotationVariantsJson FROM lesson_exercises WHERE lesson_id = ? AND status = 'Publicado' ORDER BY position, id").bind(lessonId).all<PracticeExerciseSource>(),
-    db.prepare("SELECT id, current_index AS currentIndex, answers_json AS answersJson, score, total, status, exercise_plan_json AS exercisePlanJson, speaking_attempt_ids_json AS speakingAttemptIdsJson FROM practice_sessions WHERE user_id = ? AND lesson_id = ? LIMIT 1").bind(auth.sub, lessonId).first<{ id: number; currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string }>(),
+  const [exerciseResult, currentResult] = await Promise.all([
+    db.from("lesson_exercises").select("id,type:exercise_type,category,title,prompt,optionsJson:options_json,correct:correct_answer,acceptedJson:accepted_answers_json,explanation,speech,audioKey:audio_key,skillsJson:skills_json,rotationVariantsJson:rotation_variants_json").eq("lesson_id", lessonId).eq("status", "Publicado").order("position").order("id"),
+    db.from("practice_sessions").select("id,currentIndex:current_index,answersJson:answers_json,score,total,status,exercisePlanJson:exercise_plan_json,speakingAttemptIdsJson:speaking_attempt_ids_json").eq("user_id", auth.sub).eq("lesson_id", lessonId).maybeSingle(),
   ]);
-  const sources = exerciseResult.results as PracticeExerciseSource[];
+  const sources = (assertSupabase(exerciseResult) ?? []) as PracticeExerciseSource[];
+  const current = assertSupabase(currentResult) as { id: number; currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string } | null;
   if (!sources.length) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
   const previousPlan = parsePracticePlan(current?.exercisePlanJson);
   if (payload.action === "start") {
     if (current?.status === "active" && !payload.reset && !previousPlan.length) {
       const plan = buildPracticePlan(sources, false);
-      await db.prepare("UPDATE practice_sessions SET exercise_plan_json = ?, total = ?, updated_at = ? WHERE user_id = ? AND lesson_id = ?").bind(JSON.stringify(plan), plan.length, now, auth.sub, lessonId).run();
+      assertSupabase(await db.from("practice_sessions").update({ exercise_plan_json: JSON.stringify(plan), total: plan.length, updated_at: now }).eq("user_id", auth.sub).eq("lesson_id", lessonId));
       return Response.json({ session: { currentIndex: current.currentIndex, answers: parseAnswers(current.answersJson), speakingAttemptIds: parseSpeakingAttempts(current.speakingAttemptIdsJson), score: current.score, total: plan.length, status: current.status } });
     }
     if (!current || payload.reset || current.status === "completed") {
       const plan = buildPracticePlan(sources, Boolean(lesson.smartRotation), previousPlan);
-      await db.prepare("INSERT INTO practice_sessions (user_id, lesson_id, current_index, answers_json, score, total, status, exercise_plan_json, speaking_attempt_ids_json, created_at, updated_at) VALUES (?, ?, 0, '[]', 0, ?, 'active', ?, '{}', ?, ?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET current_index = 0, answers_json = '[]', score = 0, total = excluded.total, status = 'active', exercise_plan_json = excluded.exercise_plan_json, speaking_attempt_ids_json = '{}', created_at = excluded.created_at, updated_at = excluded.updated_at").bind(auth.sub, lessonId, plan.length, JSON.stringify(plan), now, now).run();
+      assertSupabase(await db.from("practice_sessions").upsert({ user_id: auth.sub, lesson_id: lessonId, current_index: 0, answers_json: "[]", score: 0, total: plan.length, status: "active", exercise_plan_json: JSON.stringify(plan), speaking_attempt_ids_json: "{}", created_at: now, updated_at: now }, { onConflict: "user_id,lesson_id" }));
       return Response.json({ session: { currentIndex: 0, answers: [], speakingAttemptIds: {}, score: 0, total: plan.length, status: "active" } });
     }
     return Response.json({ session: { currentIndex: current.currentIndex, answers: parseAnswers(current.answersJson), speakingAttemptIds: parseSpeakingAttempts(current.speakingAttemptIdsJson), score: current.score, total: current.total, status: current.status } });
@@ -62,7 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     const question = questionRows[index];
     if (!question || !["speaking", "choice_speaking"].includes(question.type)) continue;
     const attemptId = speakingAttemptIds[String(question.id)];
-    const attempt = attemptId && current?.id ? await db.prepare("SELECT id, exercise_id AS exerciseId, conceptual_status AS conceptualStatus, result_json AS resultJson FROM speaking_attempts WHERE id = ? AND user_id = ? AND exercise_id = ? AND practice_session_id = ? AND status = 'completed' LIMIT 1").bind(attemptId, auth.sub, question.id, current.id).first<SpeakingRow>() : null;
+    const attempt = attemptId && current?.id ? assertSupabase(await db.from("speaking_attempts").select("id,exerciseId:exercise_id,conceptualStatus:conceptual_status,resultJson:result_json").eq("id", attemptId).eq("user_id", auth.sub).eq("exercise_id", question.id).eq("practice_session_id", current.id).eq("status", "completed").maybeSingle()) as SpeakingRow | null : null;
     if (!attempt) return Response.json({ error: "Confirme a gravação de speaking antes de continuar." }, { status: 400 });
     speakingByExercise.set(question.id, attempt);
   }
@@ -73,7 +74,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
     return sum + (correct ? 1 : 0);
   }, 0);
   if (payload.action === "progress") {
-    await db.prepare("INSERT INTO practice_sessions (user_id, lesson_id, current_index, answers_json, score, total, status, exercise_plan_json, speaking_attempt_ids_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET current_index = excluded.current_index, answers_json = excluded.answers_json, score = excluded.score, total = excluded.total, status = 'active', exercise_plan_json = excluded.exercise_plan_json, speaking_attempt_ids_json = excluded.speaking_attempt_ids_json, updated_at = excluded.updated_at").bind(auth.sub, lessonId, currentIndex, JSON.stringify(answers), score, total, JSON.stringify(questionRows), JSON.stringify(speakingAttemptIds), now, now).run();
+    assertSupabase(await db.from("practice_sessions").upsert({ user_id: auth.sub, lesson_id: lessonId, current_index: currentIndex, answers_json: JSON.stringify(answers), score, total, status: "active", exercise_plan_json: JSON.stringify(questionRows), speaking_attempt_ids_json: JSON.stringify(speakingAttemptIds), created_at: current ? undefined : now, updated_at: now }, { onConflict: "user_id,lesson_id" }));
     return Response.json({ ok: true, session: { currentIndex, answers, score, total, status: "active" } });
   }
   if (payload.action === "complete") {
@@ -93,11 +94,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
       dimension: "conceptual",
     }, ...(["speaking", "choice_speaking"].includes(question.type) && speakingByExercise.has(question.id) ? [{ exerciseId: question.id, tags: ["speaking", ...(question.skills ?? [])], correct: speakingByExercise.get(question.id)?.conceptualStatus === "correct", lessonId, dimension: "speaking", speakingAttemptId: speakingByExercise.get(question.id)?.id }] : [])]);
     const percentage = scorePercentage(score, total);
-    await db.batch([
-      db.prepare("INSERT INTO exercise_attempts (user_id, lesson_id, lesson_slug, score, total, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(auth.sub, lessonId, lessonSlug, score, total, JSON.stringify({ answers, results }), now),
-      db.prepare("INSERT INTO lesson_progress (user_id, lesson_id, lesson_slug, progress_percent, best_score, attempts_count, completed_at, updated_at) VALUES (?, ?, ?, 100, ?, 1, ?, ?) ON CONFLICT(user_id, lesson_slug) DO UPDATE SET lesson_id = excluded.lesson_id, progress_percent = 100, best_score = MAX(best_score, excluded.best_score), attempts_count = attempts_count + 1, completed_at = excluded.completed_at, updated_at = excluded.updated_at").bind(auth.sub, lessonId, lessonSlug, score, now, now),
-      db.prepare("INSERT INTO practice_sessions (user_id, lesson_id, current_index, answers_json, score, total, status, exercise_plan_json, speaking_attempt_ids_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?) ON CONFLICT(user_id, lesson_id) DO UPDATE SET current_index = excluded.current_index, answers_json = excluded.answers_json, score = excluded.score, total = excluded.total, status = 'completed', exercise_plan_json = excluded.exercise_plan_json, speaking_attempt_ids_json = excluded.speaking_attempt_ids_json, updated_at = excluded.updated_at").bind(auth.sub, lessonId, total, JSON.stringify(answers), score, total, JSON.stringify(questionRows), JSON.stringify(speakingAttemptIds), now, now),
-    ]);
+    const previousProgress = assertSupabase(await db.from("lesson_progress").select("best_score,attempts_count").eq("user_id", auth.sub).eq("lesson_slug", lessonSlug).maybeSingle()) as { best_score: number; attempts_count: number } | null;
+    const attemptWrite = await db.from("exercise_attempts").insert({ user_id: auth.sub, lesson_id: lessonId, lesson_slug: lessonSlug, score, total, answers_json: JSON.stringify({ answers, results }), created_at: now });
+    assertSupabase(attemptWrite);
+    const progressWrite = await db.from("lesson_progress").upsert({ user_id: auth.sub, lesson_id: lessonId, lesson_slug: lessonSlug, progress_percent: 100, best_score: Math.max(previousProgress?.best_score ?? 0, score), attempts_count: (previousProgress?.attempts_count ?? 0) + 1, completed_at: now, updated_at: now }, { onConflict: "user_id,lesson_slug" });
+    assertSupabase(progressWrite);
+    const sessionWrite = await db.from("practice_sessions").upsert({ user_id: auth.sub, lesson_id: lessonId, current_index: total, answers_json: JSON.stringify(answers), score, total, status: "completed", exercise_plan_json: JSON.stringify(questionRows), speaking_attempt_ids_json: JSON.stringify(speakingAttemptIds), created_at: current ? undefined : now, updated_at: now }, { onConflict: "user_id,lesson_id" });
+    assertSupabase(sessionWrite);
     const updated = await computeAcademicState(auth.sub);
     return Response.json({ ok: true, percentage, masteryReached: masteryReached(percentage), weakSkills: getWeakSkills(results), nextStep: getNextLearningStep(updated), session: { currentIndex: total, answers, score, total, status: "completed" } });
   }

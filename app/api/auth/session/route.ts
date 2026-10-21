@@ -1,11 +1,11 @@
 import { getAuthUser } from "../../../lib/auth";
-import { getD1 } from "../../../../db";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const user = await getAuthUser(request);
   if (!user) return Response.json({ authenticated: false }, { status: 401, headers: { "cache-control": "no-store" } });
-  const account = await getD1().prepare("SELECT level, placement_score AS placementScore, goal, daily_minutes AS dailyMinutes, must_change_password AS mustChangePassword FROM user_accounts WHERE id = ?").bind(user.sub).first();
-  return Response.json({ authenticated: true, profile: { fullName: user.fullName, email: user.email, role: user.role, ...account, mustChangePassword: Boolean((account as { mustChangePassword?: number } | null)?.mustChangePassword) } }, { headers: { "cache-control": "no-store" } });
+  const account = assertSupabase(await getSupabase().from("user_accounts").select("level,placement_score,goal,daily_minutes,must_change_password").eq("id", user.sub).maybeSingle());
+  return Response.json({ authenticated: true, profile: { fullName: user.fullName, email: user.email, role: user.role, level: account?.level, placementScore: account?.placement_score, goal: account?.goal, dailyMinutes: account?.daily_minutes, mustChangePassword: Boolean(account?.must_change_password) } }, { headers: { "cache-control": "no-store" } });
 }

@@ -1,12 +1,13 @@
-import { assertSameOrigin, ensureAuthSchema, requireAuth } from "../../lib/auth";
+import { assertSameOrigin, requireAuth } from "../../lib/auth";
+import { assertSupabase, getSupabase } from "../../../db/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
   if (auth instanceof Response) return auth;
-  const rows = await (await ensureAuthSchema()).prepare("SELECT lesson_id AS lessonId, lesson_slug AS lessonSlug, progress_percent AS progressPercent, best_score AS bestScore, attempts_count AS attemptsCount, completed_at AS completedAt FROM lesson_progress WHERE user_id = ? ORDER BY updated_at DESC").bind(auth.sub).all();
-  return Response.json({ progress: rows.results });
+  const rows = assertSupabase(await getSupabase().from("lesson_progress").select("lesson_id,lesson_slug,progress_percent,best_score,attempts_count,completed_at").eq("user_id", auth.sub).order("updated_at", { ascending: false }));
+  return Response.json({ progress: (rows ?? []).map(row => ({ lessonId: row.lesson_id, lessonSlug: row.lesson_slug, progressPercent: row.progress_percent, bestScore: row.best_score, attemptsCount: row.attempts_count, completedAt: row.completed_at })) });
 }
 
 export async function POST(request: Request) {
@@ -20,10 +21,12 @@ export async function POST(request: Request) {
   if (!lessonSlug) return Response.json({ error: "Aula inválida." }, { status: 400 });
   const percentage = Math.round((score / total) * 100);
   const now = new Date().toISOString();
-  const db = await ensureAuthSchema();
-  await db.batch([
-    db.prepare("INSERT INTO exercise_attempts (user_id, lesson_slug, score, total, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(auth.sub, lessonSlug, score, total, JSON.stringify(payload.answers ?? []), now),
-    db.prepare("INSERT INTO lesson_progress (user_id, lesson_slug, progress_percent, best_score, attempts_count, completed_at, updated_at) VALUES (?, ?, 100, ?, 1, ?, ?) ON CONFLICT(user_id, lesson_slug) DO UPDATE SET progress_percent = 100, best_score = MAX(best_score, excluded.best_score), attempts_count = attempts_count + 1, completed_at = excluded.completed_at, updated_at = excluded.updated_at").bind(auth.sub, lessonSlug, percentage, now, now),
+  const db = getSupabase();
+  const previous = assertSupabase(await db.from("lesson_progress").select("best_score,attempts_count").eq("user_id", auth.sub).eq("lesson_slug", lessonSlug).maybeSingle());
+  const [attempt, progress] = await Promise.all([
+    db.from("exercise_attempts").insert({ user_id: auth.sub, lesson_slug: lessonSlug, score, total, answers_json: JSON.stringify(payload.answers ?? []), created_at: now }),
+    db.from("lesson_progress").upsert({ user_id: auth.sub, lesson_slug: lessonSlug, progress_percent: 100, best_score: Math.max(previous?.best_score ?? 0, percentage), attempts_count: (previous?.attempts_count ?? 0) + 1, completed_at: now, updated_at: now }, { onConflict: "user_id,lesson_slug" }),
   ]);
+  assertSupabase(attempt); assertSupabase(progress);
   return Response.json({ ok: true, percentage });
 }

@@ -1,4 +1,5 @@
-import { assertSameOrigin, ensureAuthSchema, getRefreshToken, hashToken, issueSession } from "../../../lib/auth";
+import { assertSameOrigin, getRefreshToken, hashToken, issueSession } from "../../../lib/auth";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -7,12 +8,13 @@ export async function POST(request: Request) {
   const token = getRefreshToken(request);
   const [sessionId] = token.split(".");
   if (!sessionId || !token) return Response.json({ error: "Sessão inválida." }, { status: 401 });
-  const db = await ensureAuthSchema();
-  const session = await db.prepare("SELECT user_id AS userId, refresh_token_hash AS refreshTokenHash, expires_at AS expiresAt, revoked_at AS revokedAt FROM auth_sessions WHERE id = ?").bind(sessionId).first<{ userId: number; refreshTokenHash: string; expiresAt: string; revokedAt: string | null }>();
-  if (!session || session.revokedAt || new Date(session.expiresAt).getTime() <= Date.now() || session.refreshTokenHash !== await hashToken(token)) return Response.json({ error: "Sessão expirada." }, { status: 401 });
-  const account = await db.prepare("SELECT id, email, full_name AS fullName, role, token_version AS tokenVersion, status FROM user_accounts WHERE id = ?").bind(session.userId).first<{ id: number; email: string; fullName: string; role: "admin" | "student"; tokenVersion: number; status: string }>();
+  const db = getSupabase();
+  const session = assertSupabase(await db.from("auth_sessions").select("user_id,refresh_token_hash,expires_at,revoked_at").eq("id", sessionId).maybeSingle());
+  if (!session || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now() || session.refresh_token_hash !== await hashToken(token)) return Response.json({ error: "Sessão expirada." }, { status: 401 });
+  const rawAccount = assertSupabase(await db.from("user_accounts").select("id,email,full_name,role,token_version,status").eq("id", session.user_id).maybeSingle());
+  const account = rawAccount ? { id: rawAccount.id, email: rawAccount.email, fullName: rawAccount.full_name, role: rawAccount.role as "admin" | "student", tokenVersion: rawAccount.token_version, status: rawAccount.status } : null;
   if (!account || account.status !== "active") return Response.json({ error: "Conta indisponível." }, { status: 401 });
-  await db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE id = ?").bind(new Date().toISOString(), sessionId).run();
+  assertSupabase(await db.from("auth_sessions").update({ revoked_at: new Date().toISOString() }).eq("id", sessionId));
   const rotated = await issueSession(request, account);
   const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
   for (const cookie of rotated.cookies) headers.append("set-cookie", cookie);

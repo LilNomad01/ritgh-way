@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getD1 } from "../../db";
+import { assertSupabase, getSupabase } from "../../db/supabase";
 
 const encoder = new TextEncoder();
 const ACCESS_COOKIE = "rw_access";
@@ -141,8 +141,8 @@ export async function getAuthUser(request: Request) {
   if (!token) return null;
   const claims = await verifyAccessToken(token);
   if (!claims) return null;
-  const account = await getD1().prepare("SELECT token_version AS tokenVersion, status FROM user_accounts WHERE id = ? LIMIT 1").bind(claims.sub).first<{ tokenVersion: number; status: string }>();
-  if (!account || account.status !== "active" || account.tokenVersion !== claims.ver) return null;
+  const account = assertSupabase(await getSupabase().from("user_accounts").select("token_version,status").eq("id", claims.sub).maybeSingle());
+  if (!account || account.status !== "active" || account.token_version !== claims.ver) return null;
   return claims;
 }
 
@@ -164,13 +164,7 @@ export function assertSameOrigin(request: Request) {
   return new URL(origin).host === new URL(request.url).host;
 }
 
-export async function ensureAuthSchema() {
-  // Schema changes are deployed from versioned migrations, never from request handlers.
-  return getD1();
-}
-
 export async function issueSession(request: Request, account: { id: number; email: string; fullName: string; role: "admin" | "student"; tokenVersion: number }) {
-  const db = await ensureAuthSchema();
   const accessToken = await signAccessToken({ sub: account.id, email: account.email, fullName: account.fullName, role: account.role, ver: account.tokenVersion });
   const sessionId = crypto.randomUUID();
   const refreshSecret = randomSecret(40);
@@ -178,8 +172,15 @@ export async function issueSession(request: Request, account: { id: number; emai
   const expiresAt = new Date(Date.now() + REFRESH_TTL_SECONDS * 1000).toISOString();
   const ip = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for") ?? "local";
   const ipHash = await hashToken(`${ip}:${secrets().AUTH_JWT_SECRET ?? ""}`);
-  await db.prepare("INSERT INTO auth_sessions (id, user_id, refresh_token_hash, ip_hash, user_agent, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(sessionId, account.id, await hashToken(refreshToken), ipHash, (request.headers.get("user-agent") ?? "").slice(0, 300), expiresAt, new Date().toISOString()).run();
+  assertSupabase(await getSupabase().from("auth_sessions").insert({
+    id: sessionId,
+    user_id: account.id,
+    refresh_token_hash: await hashToken(refreshToken),
+    ip_hash: ipHash,
+    user_agent: (request.headers.get("user-agent") ?? "").slice(0, 300),
+    expires_at: expiresAt,
+    created_at: new Date().toISOString(),
+  }));
   return {
     accessToken,
     refreshToken,

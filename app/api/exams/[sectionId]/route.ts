@@ -1,4 +1,4 @@
-import { getD1 } from "../../../../db";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { computeAcademicState, type SectionAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
 import { rotateExamQuestions } from "../../../lib/learning-progress";
@@ -10,25 +10,30 @@ export async function GET(request: Request, { params }: { params: Promise<{ sect
   if (auth instanceof Response) return auth;
   const { sectionId: rawSectionId } = await params;
   const sectionId = Number(rawSectionId);
-  const db = getD1();
-  const [exam, academic] = await Promise.all([
-    db.prepare(`SELECT e.id, e.section_id AS sectionId, e.title, e.description, e.pass_score AS passScore,
-      s.title AS sectionTitle, m.title AS moduleTitle, m.level
-      FROM section_exams e JOIN course_sections s ON s.id = e.section_id JOIN course_modules m ON m.id = s.module_id
-      WHERE e.section_id = ? AND e.status = 'Publicado' LIMIT 1`).bind(sectionId).first<{ id: number; sectionId: number; title: string; description: string; passScore: number; sectionTitle: string; moduleTitle: string; level: string }>(),
+  const db = getSupabase();
+  const [examResult, sectionResult, academic] = await Promise.all([
+    db.from("section_exams").select("id,sectionId:section_id,title,description,passScore:pass_score").eq("section_id", sectionId).eq("status", "Publicado").maybeSingle(),
+    db.from("course_sections").select("id,moduleId:module_id,title").eq("id", sectionId).eq("status", "Publicado").maybeSingle(),
     computeAcademicState(auth.sub),
   ]);
-  if (!exam) return Response.json({ error: "Prova não encontrada." }, { status: 404 });
+  const examRow = assertSupabase(examResult) as { id: number; sectionId: number; title: string; description: string; passScore: number } | null;
+  const section = assertSupabase(sectionResult) as { id: number; moduleId: number; title: string } | null;
+  if (!examRow || !section) return Response.json({ error: "Prova não encontrada." }, { status: 404 });
+  const moduleResult = await db.from("course_modules").select("id,title,level").eq("id", section.moduleId).eq("status", "Publicado").maybeSingle();
+  const courseModule = assertSupabase(moduleResult) as { id: number; title: string; level: string } | null;
+  if (!courseModule) return Response.json({ error: "Prova não encontrada." }, { status: 404 });
+  const exam = { ...examRow, sectionTitle: section.title, moduleTitle: courseModule.title, level: courseModule.level };
   const state = (academic.sectionStates as SectionAcademicState[]).find((item: SectionAcademicState) => item.sectionId === sectionId);
   if (!state) return Response.json({ error: "Matéria indisponível." }, { status: 404 });
-  const [questions, firstLesson] = await Promise.all([
-    db.prepare("SELECT id, question_type AS type, category, prompt, options_json AS optionsJson, position FROM section_exam_questions WHERE exam_id = ? AND status = 'Publicado' ORDER BY position, id").bind(exam.id).all<{ id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }>(),
-    db.prepare("SELECT id FROM lessons WHERE section_id = ? AND status = 'Publicado' ORDER BY position, id LIMIT 1").bind(sectionId).first<{ id: number }>(),
+  const [questionResult, firstLessonResult] = await Promise.all([
+    db.from("section_exam_questions").select("id,type:question_type,category,prompt,optionsJson:options_json,position").eq("exam_id", exam.id).eq("status", "Publicado").order("position").order("id"),
+    db.from("lessons").select("id").eq("section_id", sectionId).eq("status", "Publicado").order("position").order("id").limit(1).maybeSingle(),
   ]);
-  const parsed = (questions.results as { id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }[]).map((question) => {
+  const parsed = ((assertSupabase(questionResult) ?? []) as { id: number; type: string; category: string; prompt: string; optionsJson?: string; position: number }[]).map((question) => {
     let options: string[] = [];
     try { options = JSON.parse(question.optionsJson ?? "[]") as string[]; } catch { options = []; }
     return { id: question.id, type: question.type, category: question.category, prompt: question.prompt, options, position: question.position };
   });
+  const firstLesson = assertSupabase(firstLessonResult) as { id: number } | null;
   return Response.json({ exam: { ...exam, passScore: state.examPassScore, questionCount: parsed.length, firstLessonId: firstLesson?.id }, questions: state.examUnlocked ? rotateExamQuestions(parsed, auth.sub, exam.id, state.examAttempts) : [], state }, { headers: { "cache-control": "private, no-store" } });
 }

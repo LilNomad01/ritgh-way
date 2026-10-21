@@ -1,4 +1,4 @@
-import { getD1 } from "../../../db";
+import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { assertSameOrigin, hashPassword, passwordPolicyError, randomSecret, requireAdmin } from "../../lib/auth";
 import { exerciseTypes, isChoice, isListening, normalizeAnswer } from "../../lib/exercise-answers";
 import { MASTERY_THRESHOLD } from "../../lib/learning-progress";
@@ -65,17 +65,21 @@ export async function GET(request: Request) {
   try {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
-    const db = getD1();
-    const [students, modules, sections, lessons, exercises, exams, examQuestions] = await db.batch([
-      db.prepare("SELECT students.id, students.full_name AS fullName, students.email, students.level, students.placement_score AS placementScore, students.status, students.created_at AS createdAt, CASE WHEN user_accounts.id IS NULL THEN 0 ELSE 1 END AS hasAccount, COALESCE(user_accounts.must_change_password, 0) AS mustChangePassword, user_accounts.last_login_at AS lastLoginAt FROM students LEFT JOIN user_accounts ON user_accounts.email = students.email AND user_accounts.role = 'student' ORDER BY students.id DESC"),
-      db.prepare("SELECT id, title, level, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_modules ORDER BY position, id"),
-      db.prepare("SELECT id, module_id AS moduleId, title, description, status, position, cover_key AS imageKey, cover_mobile_key AS imageMobileKey, cover_fit AS imageFit, cover_zoom AS imageZoom, cover_overlay AS imageOverlay, cover_position_x AS imagePositionX, cover_position_y AS imagePositionY FROM course_sections ORDER BY module_id, position, id"),
-      db.prepare("SELECT id, section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, smart_rotation AS smartRotation, video_key AS videoKey, video_name AS videoName, video_size AS videoSize, thumbnail_key AS imageKey, thumbnail_mobile_key AS imageMobileKey, thumbnail_fit AS imageFit, thumbnail_zoom AS imageZoom, thumbnail_overlay AS imageOverlay, thumbnail_position_x AS imagePositionX, thumbnail_position_y AS imagePositionY FROM lessons ORDER BY section_id, position, id"),
-      db.prepare("SELECT id, lesson_id AS lessonId, exercise_type AS exerciseType, category, title, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, speech, audio_key AS audioKey, audio_name AS audioName, skills_json AS skillsJson, rotation_variants_json AS rotationVariantsJson, status, position FROM lesson_exercises ORDER BY lesson_id, position, id"),
-      db.prepare("SELECT id, section_id AS sectionId, title, description, status, pass_score AS passScore, position FROM section_exams ORDER BY section_id, position, id"),
-      db.prepare("SELECT id, exam_id AS examId, question_type AS questionType, category, prompt, options_json AS optionsJson, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation, status, position FROM section_exam_questions ORDER BY exam_id, position, id"),
+    const db = getSupabase();
+    const [studentResult, accountResult, moduleResult, sectionResult, lessonResult, exerciseResult, examResult, questionResult] = await Promise.all([
+      db.from("students").select("id,fullName:full_name,email,level,placementScore:placement_score,status,createdAt:created_at").order("id", { ascending: false }),
+      db.from("user_accounts").select("id,email,mustChangePassword:must_change_password,lastLoginAt:last_login_at").eq("role", "student"),
+      db.from("course_modules").select("id,title,level,description,status,position,imageKey:cover_key,imageMobileKey:cover_mobile_key,imageFit:cover_fit,imageZoom:cover_zoom,imageOverlay:cover_overlay,imagePositionX:cover_position_x,imagePositionY:cover_position_y").order("position").order("id"),
+      db.from("course_sections").select("id,moduleId:module_id,title,description,status,position,imageKey:cover_key,imageMobileKey:cover_mobile_key,imageFit:cover_fit,imageZoom:cover_zoom,imageOverlay:cover_overlay,imagePositionX:cover_position_x,imagePositionY:cover_position_y").order("module_id").order("position").order("id"),
+      db.from("lessons").select("id,sectionId:section_id,title,description,duration,lessonType:lesson_type,status,position,smartRotation:smart_rotation,videoKey:video_key,videoName:video_name,videoSize:video_size,imageKey:thumbnail_key,imageMobileKey:thumbnail_mobile_key,imageFit:thumbnail_fit,imageZoom:thumbnail_zoom,imageOverlay:thumbnail_overlay,imagePositionX:thumbnail_position_x,imagePositionY:thumbnail_position_y").order("section_id").order("position").order("id"),
+      db.from("lesson_exercises").select("id,lessonId:lesson_id,exerciseType:exercise_type,category,title,prompt,optionsJson:options_json,correctAnswer:correct_answer,acceptedAnswersJson:accepted_answers_json,explanation,speech,audioKey:audio_key,audioName:audio_name,skillsJson:skills_json,rotationVariantsJson:rotation_variants_json,status,position").order("lesson_id").order("position").order("id"),
+      db.from("section_exams").select("id,sectionId:section_id,title,description,status,passScore:pass_score,position").order("section_id").order("position").order("id"),
+      db.from("section_exam_questions").select("id,examId:exam_id,questionType:question_type,category,prompt,optionsJson:options_json,correctAnswer:correct_answer,acceptedAnswersJson:accepted_answers_json,explanation,status,position").order("exam_id").order("position").order("id"),
     ]);
-    return Response.json({ students: students.results, modules: modules.results, sections: sections.results, lessons: lessons.results, exercises: exercises.results, exams: exams.results, examQuestions: examQuestions.results });
+    const accounts = (assertSupabase(accountResult) ?? []) as { id: number; email: string; mustChangePassword: number; lastLoginAt: string | null }[];
+    const accountByEmail = new Map(accounts.map(account => [account.email, account]));
+    const students = ((assertSupabase(studentResult) ?? []) as { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string }[]).map(student => { const account = accountByEmail.get(student.email); return { ...student, hasAccount: account ? 1 : 0, mustChangePassword: account?.mustChangePassword ?? 0, lastLoginAt: account?.lastLoginAt ?? null }; });
+    return Response.json({ students, modules: assertSupabase(moduleResult) ?? [], sections: assertSupabase(sectionResult) ?? [], lessons: assertSupabase(lessonResult) ?? [], exercises: assertSupabase(exerciseResult) ?? [], exams: assertSupabase(examResult) ?? [], examQuestions: assertSupabase(questionResult) ?? [] });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar os dados." }, { status: 500 });
   }
@@ -87,8 +91,8 @@ export async function POST(request: Request) {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const payload = await request.json() as Record<string, unknown> & { entity?: Entity };
-    const db = getD1();
-    let result;
+    const db = getSupabase();
+    let id: number | undefined;
     if (payload.entity === "student") {
       const name = clean(payload.fullName);
       const email = clean(payload.email).toLowerCase();
@@ -96,8 +100,12 @@ export async function POST(request: Request) {
       if (!name || !email) return Response.json({ error: "Nome e e-mail são obrigatórios." }, { status: 400 });
       const passwordError = passwordPolicyError(password);
       if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
-      const existingStudent = await db.prepare("SELECT id FROM students WHERE email = ? LIMIT 1").bind(email).first();
-      const existingAccount = await db.prepare("SELECT id FROM user_accounts WHERE email = ? LIMIT 1").bind(email).first();
+      const [studentLookup, accountLookup] = await Promise.all([
+        db.from("students").select("id").eq("email", email).maybeSingle(),
+        db.from("user_accounts").select("id").eq("email", email).maybeSingle(),
+      ]);
+      const existingStudent = assertSupabase(studentLookup);
+      const existingAccount = assertSupabase(accountLookup);
       if (existingStudent || existingAccount) return Response.json({ error: "Já existe um cadastro com esse e-mail." }, { status: 409 });
       const level = clean(payload.level) || "Básico";
       const status = clean(payload.status) || "Ativo";
@@ -105,20 +113,17 @@ export async function POST(request: Request) {
       const salt = randomSecret(24);
       const passwordHash = await hashPassword(password, salt);
       const now = new Date().toISOString();
-      const statements = await db.batch([
-        db.prepare("INSERT INTO students (full_name, email, level, placement_score, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(name, email, level, score, status, now),
-        db.prepare("INSERT INTO user_accounts (email, full_name, password_hash, password_salt, role, status, level, placement_score, daily_minutes, token_version, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, 'student', ?, ?, ?, 10, 1, 1, ?, ?)").bind(email, name, passwordHash, salt, status === "Pausado" ? "paused" : "active", level, score, now, now),
-      ]);
-      result = statements[0];
+      const student = assertSupabase(await db.from("students").insert({ full_name: name, email, level, placement_score: score, status, created_at: now }).select("id").single()) as { id: number } | null;
+      if (!student) throw new Error("O Supabase não retornou o aluno criado.");
+      const account = await db.from("user_accounts").insert({ email, full_name: name, password_hash: passwordHash, password_salt: salt, role: "student", status: status === "Pausado" ? "paused" : "active", level, placement_score: score, daily_minutes: 10, token_version: 1, must_change_password: 1, created_at: now, updated_at: now });
+      if (account.error) { await db.from("students").delete().eq("id", student.id); throw new Error(`Supabase: ${account.error.message}`); }
+      id = student.id;
     } else if (payload.entity === "module") {
-      result = await db.prepare("INSERT INTO course_modules (title, level, description, status, position) VALUES (?, ?, ?, ?, ?)")
-        .bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      const row = assertSupabase(await db.from("course_modules").insert({ title: clean(payload.title), level: clean(payload.level), description: clean(payload.description), status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "section") {
-      result = await db.prepare("INSERT INTO course_sections (module_id, title, description, status, position) VALUES (?, ?, ?, ?, ?)")
-        .bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      const row = assertSupabase(await db.from("course_sections").insert({ module_id: Number(payload.moduleId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "lesson") {
-      result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position, smart_rotation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration) || "10 min", clean(payload.lessonType) || "Vídeo + prática", clean(payload.status) || "Rascunho", Number(payload.position) || 0, payload.smartRotation ? 1 : 0).run();
+      const row = assertSupabase(await db.from("lessons").insert({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), duration: clean(payload.duration) || "10 min", lesson_type: clean(payload.lessonType) || "Vídeo + prática", status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0, smart_rotation: payload.smartRotation ? 1 : 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "exercise") {
       if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") return Response.json({ error: "Salve como rascunho, envie a gravação e depois publique." }, { status: 400 });
       const validationError = exerciseError(payload);
@@ -127,22 +132,20 @@ export async function POST(request: Request) {
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));
-      result = await db.prepare("INSERT INTO lesson_exercises (lesson_id, exercise_type, category, title, prompt, options_json, correct_answer, accepted_answers_json, explanation, speech, skills_json, rotation_variants_json, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.lessonId), clean(payload.exerciseType) || "choice", clean(payload.category) || "Compreensão", clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      const row = assertSupabase(await db.from("lesson_exercises").insert({ lesson_id: Number(payload.lessonId), exercise_type: clean(payload.exerciseType) || "choice", category: clean(payload.category) || "Compreensão", title: clean(payload.title), prompt: clean(payload.prompt), options_json: optionsJson, correct_answer: clean(payload.correctAnswer), accepted_answers_json: acceptedAnswersJson, explanation: clean(payload.explanation), speech: clean(payload.speech) || null, skills_json: skillsJson, rotation_variants_json: variantsJson, status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "exam") {
-      result = await db.prepare("INSERT INTO section_exams (section_id, title, description, status, pass_score, position) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status) || "Rascunho", Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), Number(payload.position) || 1).run();
+      const row = assertSupabase(await db.from("section_exams").insert({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status) || "Rascunho", pass_score: Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), position: Number(payload.position) || 1 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "examQuestion") {
       const error = examQuestionError(payload);
       if (error) return Response.json({ error }, { status: 400 });
       const optionsJson = payload.questionType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
-      result = await db.prepare("INSERT INTO section_exam_questions (exam_id, question_type, category, prompt, options_json, correct_answer, accepted_answers_json, explanation, status, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Number(payload.examId), clean(payload.questionType) || "choice", clean(payload.category) || "Avaliação", clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status) || "Rascunho", Number(payload.position) || 0).run();
+      const row = assertSupabase(await db.from("section_exam_questions").insert({ exam_id: Number(payload.examId), question_type: clean(payload.questionType) || "choice", category: clean(payload.category) || "Avaliação", prompt: clean(payload.prompt), options_json: optionsJson, correct_answer: clean(payload.correctAnswer), accepted_answers_json: acceptedAnswersJson, explanation: clean(payload.explanation), status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
-    return Response.json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+    if (!id) throw new Error("O Supabase não retornou o registro criado.");
+    return Response.json({ ok: true, id }, { status: 201 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível salvar." }, { status: 500 });
   }
@@ -154,23 +157,21 @@ export async function PUT(request: Request) {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const payload = await request.json() as Record<string, unknown> & { entity?: Entity; id?: number };
-    const db = getD1();
+    const db = getSupabase();
     const id = Number(payload.id);
     if (!id) return Response.json({ error: "ID inválido." }, { status: 400 });
     if (payload.entity === "student") {
-      const existing = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
+      const existing = assertSupabase(await db.from("students").select("email").eq("id", id).maybeSingle()) as { email: string } | null;
       const email = clean(payload.email).toLowerCase();
-      await db.batch([
-        db.prepare("UPDATE students SET full_name = ?, email = ?, level = ?, status = ? WHERE id = ?").bind(clean(payload.fullName), email, clean(payload.level), clean(payload.status), id),
-        db.prepare("UPDATE user_accounts SET full_name = ?, email = ?, level = ?, status = ?, token_version = token_version + 1, updated_at = ? WHERE email = ? AND role = 'student'")
-          .bind(clean(payload.fullName), email, clean(payload.level), clean(payload.status) === "Pausado" ? "paused" : "active", new Date().toISOString(), existing?.email ?? email),
-      ]);
+      assertSupabase(await db.from("students").update({ full_name: clean(payload.fullName), email, level: clean(payload.level), status: clean(payload.status) }).eq("id", id));
+      const account = assertSupabase(await db.from("user_accounts").select("id,token_version").eq("email", existing?.email ?? email).eq("role", "student").maybeSingle()) as { id: number; token_version: number } | null;
+      if (account) assertSupabase(await db.from("user_accounts").update({ full_name: clean(payload.fullName), email, level: clean(payload.level), status: clean(payload.status) === "Pausado" ? "paused" : "active", token_version: account.token_version + 1, updated_at: new Date().toISOString() }).eq("id", account.id));
     } else if (payload.entity === "module") {
-      await db.prepare("UPDATE course_modules SET title = ?, level = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(clean(payload.title), clean(payload.level), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
+      assertSupabase(await db.from("course_modules").update({ title: clean(payload.title), level: clean(payload.level), description: clean(payload.description), status: clean(payload.status), position: Number(payload.position) || 0 }).eq("id", id));
     } else if (payload.entity === "section") {
-      await db.prepare("UPDATE course_sections SET module_id = ?, title = ?, description = ?, status = ?, position = ? WHERE id = ?").bind(Number(payload.moduleId), clean(payload.title), clean(payload.description), clean(payload.status), Number(payload.position) || 0, id).run();
+      assertSupabase(await db.from("course_sections").update({ module_id: Number(payload.moduleId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status), position: Number(payload.position) || 0 }).eq("id", id));
     } else if (payload.entity === "lesson") {
-      await db.prepare("UPDATE lessons SET section_id = ?, title = ?, description = ?, duration = ?, lesson_type = ?, status = ?, position = ?, smart_rotation = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.duration), clean(payload.lessonType), clean(payload.status), Number(payload.position) || 0, payload.smartRotation ? 1 : 0, id).run();
+      assertSupabase(await db.from("lessons").update({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), duration: clean(payload.duration), lesson_type: clean(payload.lessonType), status: clean(payload.status), position: Number(payload.position) || 0, smart_rotation: payload.smartRotation ? 1 : 0 }).eq("id", id));
     } else if (payload.entity === "exercise") {
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
@@ -178,17 +179,15 @@ export async function PUT(request: Request) {
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");
       const variantsJson = rotationVariants(payload.rotationVariantsJson, clean(payload.exerciseType));
-      await db.prepare("UPDATE lesson_exercises SET lesson_id = ?, exercise_type = ?, category = ?, title = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, speech = ?, skills_json = ?, rotation_variants_json = ?, status = ?, position = ? WHERE id = ?")
-        .bind(Number(payload.lessonId), clean(payload.exerciseType), clean(payload.category), clean(payload.title), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.speech) || null, skillsJson, variantsJson, clean(payload.status), Number(payload.position) || 0, id).run();
+      assertSupabase(await db.from("lesson_exercises").update({ lesson_id: Number(payload.lessonId), exercise_type: clean(payload.exerciseType), category: clean(payload.category), title: clean(payload.title), prompt: clean(payload.prompt), options_json: optionsJson, correct_answer: clean(payload.correctAnswer), accepted_answers_json: acceptedAnswersJson, explanation: clean(payload.explanation), speech: clean(payload.speech) || null, skills_json: skillsJson, rotation_variants_json: variantsJson, status: clean(payload.status), position: Number(payload.position) || 0 }).eq("id", id));
     } else if (payload.entity === "exam") {
-      await db.prepare("UPDATE section_exams SET section_id = ?, title = ?, description = ?, status = ?, pass_score = ?, position = ? WHERE id = ?").bind(Number(payload.sectionId), clean(payload.title), clean(payload.description), clean(payload.status), Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), Number(payload.position) || 1, id).run();
+      assertSupabase(await db.from("section_exams").update({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status), pass_score: Math.min(100, Math.max(MASTERY_THRESHOLD, Number(payload.passScore) || MASTERY_THRESHOLD)), position: Number(payload.position) || 1 }).eq("id", id));
     } else if (payload.entity === "examQuestion") {
       const error = examQuestionError(payload);
       if (error) return Response.json({ error }, { status: 400 });
       const optionsJson = payload.questionType === "choice" ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
-      await db.prepare("UPDATE section_exam_questions SET exam_id = ?, question_type = ?, category = ?, prompt = ?, options_json = ?, correct_answer = ?, accepted_answers_json = ?, explanation = ?, status = ?, position = ? WHERE id = ?")
-        .bind(Number(payload.examId), clean(payload.questionType), clean(payload.category), clean(payload.prompt), optionsJson, clean(payload.correctAnswer), acceptedAnswersJson, clean(payload.explanation), clean(payload.status), Number(payload.position) || 0, id).run();
+      assertSupabase(await db.from("section_exam_questions").update({ exam_id: Number(payload.examId), question_type: clean(payload.questionType), category: clean(payload.category), prompt: clean(payload.prompt), options_json: optionsJson, correct_answer: clean(payload.correctAnswer), accepted_answers_json: acceptedAnswersJson, explanation: clean(payload.explanation), status: clean(payload.status), position: Number(payload.position) || 0 }).eq("id", id));
     } else {
       return Response.json({ error: "Entidade inválida." }, { status: 400 });
     }
@@ -204,7 +203,7 @@ export async function PATCH(request: Request) {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const payload = await request.json() as { action?: string; entity?: ReorderEntity | "module"; orderedIds?: number[]; id?: number; password?: string; imageFit?: string; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
-    const db = getD1();
+    const db = getSupabase();
 
     if (payload.action === "resetStudentPassword") {
       const studentId = Number(payload.id);
@@ -212,39 +211,35 @@ export async function PATCH(request: Request) {
       if (!studentId) return Response.json({ error: "Aluno inválido." }, { status: 400 });
       const passwordError = passwordPolicyError(password);
       if (passwordError) return Response.json({ error: passwordError }, { status: 400 });
-      const student = await db.prepare("SELECT full_name AS fullName, email, level, placement_score AS placementScore, status, created_at AS createdAt FROM students WHERE id = ? LIMIT 1").bind(studentId).first<{ fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string }>();
+      const student = assertSupabase(await db.from("students").select("fullName:full_name,email,level,placementScore:placement_score,status,createdAt:created_at").eq("id", studentId).maybeSingle()) as { fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string } | null;
       if (!student) return Response.json({ error: "Aluno não encontrado." }, { status: 404 });
-      const account = await db.prepare("SELECT id, role FROM user_accounts WHERE email = ? LIMIT 1").bind(student.email).first<{ id: number; role: string }>();
+      const account = assertSupabase(await db.from("user_accounts").select("id,role,token_version").eq("email", student.email).maybeSingle()) as { id: number; role: string; token_version: number } | null;
       if (account && account.role !== "student") return Response.json({ error: "Esse e-mail pertence a uma conta administrativa." }, { status: 409 });
       const salt = randomSecret(24);
       const passwordHash = await hashPassword(password, salt);
       const now = new Date().toISOString();
       if (account) {
-        await db.batch([
-          db.prepare("UPDATE user_accounts SET password_hash = ?, password_salt = ?, token_version = token_version + 1, must_change_password = 1, status = ?, updated_at = ? WHERE id = ?").bind(passwordHash, salt, student.status === "Pausado" ? "paused" : "active", now, account.id),
-          db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, account.id),
-        ]);
+        assertSupabase(await db.from("user_accounts").update({ password_hash: passwordHash, password_salt: salt, token_version: account.token_version + 1, must_change_password: 1, status: student.status === "Pausado" ? "paused" : "active", updated_at: now }).eq("id", account.id));
+        assertSupabase(await db.from("auth_sessions").update({ revoked_at: now }).eq("user_id", account.id).is("revoked_at", null));
       } else {
-        await db.prepare("INSERT INTO user_accounts (email, full_name, password_hash, password_salt, role, status, level, placement_score, daily_minutes, token_version, must_change_password, created_at, updated_at) VALUES (?, ?, ?, ?, 'student', ?, ?, ?, 10, 1, 1, ?, ?)")
-          .bind(student.email, student.fullName, passwordHash, salt, student.status === "Pausado" ? "paused" : "active", student.level, student.placementScore, student.createdAt || now, now).run();
+        assertSupabase(await db.from("user_accounts").insert({ email: student.email, full_name: student.fullName, password_hash: passwordHash, password_salt: salt, role: "student", status: student.status === "Pausado" ? "paused" : "active", level: student.level, placement_score: student.placementScore, daily_minutes: 10, token_version: 1, must_change_password: 1, created_at: student.createdAt || now, updated_at: now }));
       }
       return Response.json({ ok: true, message: `A nova senha de ${student.fullName} foi salva com segurança.` });
     }
 
     if (payload.action === "reorder" && payload.entity && Array.isArray(payload.orderedIds)) {
       const table = payload.entity === "lesson" ? "lessons" : payload.entity === "exercise" ? "lesson_exercises" : payload.entity === "examQuestion" ? "section_exam_questions" : "course_sections";
-      const statements = payload.orderedIds.map((id, index) => db.prepare(`UPDATE ${table} SET position = ? WHERE id = ?`).bind(index + 1, Number(id)));
-      await db.batch(statements);
+      await Promise.all(payload.orderedIds.map(async (rowId, index) => { assertSupabase(await db.from(table).update({ position: index + 1 }).eq("id", Number(rowId))); }));
       return Response.json({ ok: true });
     }
 
     if (payload.action === "duplicateLesson") {
-      const lesson = await db.prepare("SELECT section_id AS sectionId, title, description, duration, lesson_type AS lessonType, status, position, smart_rotation AS smartRotation FROM lessons WHERE id = ? LIMIT 1").bind(Number(payload.id)).first<{ sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number; smartRotation: number }>();
+      const lesson = assertSupabase(await db.from("lessons").select("sectionId:section_id,title,description,duration,lessonType:lesson_type,status,position,smartRotation:smart_rotation").eq("id", Number(payload.id)).maybeSingle()) as { sectionId: number; title: string; description: string; duration: string; lessonType: string; status: string; position: number; smartRotation: number } | null;
       if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
-      const nextPosition = await db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM lessons WHERE section_id = ?").bind(lesson.sectionId).first<{ nextPosition: number }>();
-      const result = await db.prepare("INSERT INTO lessons (section_id, title, description, duration, lesson_type, status, position, smart_rotation) VALUES (?, ?, ?, ?, ?, 'Rascunho', ?, ?)")
-        .bind(lesson.sectionId, `${lesson.title} (cópia)`, lesson.description, lesson.duration, lesson.lessonType, nextPosition?.nextPosition ?? lesson.position + 1, lesson.smartRotation ? 1 : 0).run();
-      return Response.json({ ok: true, id: result.meta.last_row_id });
+      const last = assertSupabase(await db.from("lessons").select("position").eq("section_id", lesson.sectionId).order("position", { ascending: false }).limit(1).maybeSingle()) as { position: number } | null;
+      const created = assertSupabase(await db.from("lessons").insert({ section_id: lesson.sectionId, title: `${lesson.title} (cópia)`, description: lesson.description, duration: lesson.duration, lesson_type: lesson.lessonType, status: "Rascunho", position: (last?.position ?? 0) + 1, smart_rotation: lesson.smartRotation ? 1 : 0 }).select("id").single()) as { id: number } | null;
+      if (!created) throw new Error("O Supabase não retornou a aula duplicada.");
+      return Response.json({ ok: true, id: created.id });
     }
 
     if (payload.action === "updateArtwork" && payload.entity && payload.id) {
@@ -257,8 +252,7 @@ export async function PATCH(request: Request) {
       const [, table, prefix] = configuration;
       const fit = ["cover", "contain", "fill"].includes(payload.imageFit ?? "") ? payload.imageFit : "cover";
       const clamp = (value: number | undefined, min: number, max: number) => Math.min(max, Math.max(min, Number(value) || min));
-      await db.prepare(`UPDATE ${table} SET ${prefix}_fit = ?, ${prefix}_zoom = ?, ${prefix}_overlay = ?, ${prefix}_position_x = ?, ${prefix}_position_y = ? WHERE id = ?`)
-        .bind(fit, clamp(payload.imageZoom, 100, 180), clamp(payload.imageOverlay, 0, 75), clamp(payload.imagePositionX, 0, 100), clamp(payload.imagePositionY, 0, 100), Number(payload.id)).run();
+      assertSupabase(await db.from(table).update({ [`${prefix}_fit`]: fit, [`${prefix}_zoom`]: clamp(payload.imageZoom, 100, 180), [`${prefix}_overlay`]: clamp(payload.imageOverlay, 0, 75), [`${prefix}_position_x`]: clamp(payload.imagePositionX, 0, 100), [`${prefix}_position_y`]: clamp(payload.imagePositionY, 0, 100) }).eq("id", Number(payload.id)));
       return Response.json({ ok: true });
     }
 
@@ -276,26 +270,22 @@ export async function DELETE(request: Request) {
     const url = new URL(request.url);
     const entity = url.searchParams.get("entity") as Entity | null;
     const id = Number(url.searchParams.get("id"));
-    const db = getD1();
+    const db = getSupabase();
     const tables: Record<Entity, string> = { student: "students", module: "course_modules", section: "course_sections", lesson: "lessons", exercise: "lesson_exercises", exam: "section_exams", examQuestion: "section_exam_questions" };
     if (!entity || !tables[entity] || !id) return Response.json({ error: "Dados inválidos." }, { status: 400 });
     if (entity === "student") {
-      const student = await db.prepare("SELECT email FROM students WHERE id = ? LIMIT 1").bind(id).first<{ email: string }>();
+      const student = assertSupabase(await db.from("students").select("email").eq("id", id).maybeSingle()) as { email: string } | null;
       if (student) {
-        const account = await db.prepare("SELECT id FROM user_accounts WHERE email = ? AND role = 'student' LIMIT 1").bind(student.email).first<{ id: number }>();
+        const account = assertSupabase(await db.from("user_accounts").select("id,token_version").eq("email", student.email).eq("role", "student").maybeSingle()) as { id: number; token_version: number } | null;
         const now = new Date().toISOString();
-        await db.batch([
-          db.prepare("DELETE FROM students WHERE id = ?").bind(id),
-          db.prepare("UPDATE user_accounts SET status = 'deleted', token_version = token_version + 1, updated_at = ? WHERE id = ?").bind(now, account?.id ?? 0),
-          db.prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").bind(now, account?.id ?? 0),
-        ]);
+        assertSupabase(await db.from("students").delete().eq("id", id));
+        if (account) {
+          assertSupabase(await db.from("user_accounts").update({ status: "deleted", token_version: account.token_version + 1, updated_at: now }).eq("id", account.id));
+          assertSupabase(await db.from("auth_sessions").update({ revoked_at: now }).eq("user_id", account.id).is("revoked_at", null));
+        }
       }
-    } else if (entity === "lesson") {
-      await db.batch([db.prepare("DELETE FROM lesson_exercises WHERE lesson_id = ?").bind(id), db.prepare("DELETE FROM lessons WHERE id = ?").bind(id)]);
-    } else if (entity === "exam") {
-      await db.batch([db.prepare("DELETE FROM section_exam_questions WHERE exam_id = ?").bind(id), db.prepare("DELETE FROM section_exams WHERE id = ?").bind(id)]);
     } else {
-      await db.prepare(`DELETE FROM ${tables[entity]} WHERE id = ?`).bind(id).run();
+      assertSupabase(await db.from(tables[entity]).delete().eq("id", id));
     }
     return Response.json({ ok: true });
   } catch (error) {

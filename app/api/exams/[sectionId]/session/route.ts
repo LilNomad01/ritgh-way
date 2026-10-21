@@ -1,5 +1,5 @@
 import { normalizeAnswer } from "../../../../lib/exercise-answers";
-import { getD1 } from "../../../../../db";
+import { assertSupabase, getSupabase } from "../../../../../db/supabase";
 import { computeAcademicState, getNextLearningStep, type SectionAcademicState } from "../../../../lib/academic";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 import { getWeakSkills, MASTERY_THRESHOLD } from "../../../../lib/learning-progress";
@@ -21,15 +21,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
   const { sectionId: rawSectionId } = await params;
   const sectionId = Number(rawSectionId);
   const payload = await request.json() as { answers?: Record<string, string> };
-  const db = getD1();
-  const [exam, academic] = await Promise.all([
-    db.prepare("SELECT id, title, pass_score AS passScore FROM section_exams WHERE section_id = ? AND status = 'Publicado' LIMIT 1").bind(sectionId).first<{ id: number; title: string; passScore: number }>(),
+  const db = getSupabase();
+  const [examResult, academic] = await Promise.all([
+    db.from("section_exams").select("id,title,passScore:pass_score").eq("section_id", sectionId).eq("status", "Publicado").maybeSingle(),
     computeAcademicState(auth.sub),
   ]);
+  const exam = assertSupabase(examResult) as { id: number; title: string; passScore: number } | null;
   const sectionState = (academic.sectionStates as SectionAcademicState[]).find((state: SectionAcademicState) => state.sectionId === sectionId);
   if (!exam || !sectionState?.examUnlocked) return Response.json({ error: "Conclua todas as aulas desta matéria para liberar a prova." }, { status: 403 });
-  const result = await db.prepare("SELECT id, category, prompt, correct_answer AS correctAnswer, accepted_answers_json AS acceptedAnswersJson, explanation FROM section_exam_questions WHERE exam_id = ? AND status = 'Publicado' ORDER BY position, id").bind(exam.id).all<{ id: number; category: string; prompt: string; correctAnswer: string; acceptedAnswersJson?: string; explanation: string }>();
-  const questions = result.results as { id: number; category: string; prompt: string; correctAnswer: string; acceptedAnswersJson?: string; explanation: string }[];
+  const questionResult = await db.from("section_exam_questions").select("id,category,prompt,correctAnswer:correct_answer,acceptedAnswersJson:accepted_answers_json,explanation").eq("exam_id", exam.id).eq("status", "Publicado").order("position").order("id");
+  const questions = (assertSupabase(questionResult) ?? []) as { id: number; category: string; prompt: string; correctAnswer: string; acceptedAnswersJson?: string; explanation: string }[];
   if (!questions.length) return Response.json({ error: "Esta prova ainda não tem questões publicadas." }, { status: 400 });
   const answers = payload.answers ?? {};
   if (questions.some((question) => !String(answers[String(question.id)] ?? "").trim())) return Response.json({ error: "Responda todas as questões antes de finalizar." }, { status: 400 });
@@ -46,7 +47,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
   const results = review.map((item) => ({ questionId: item.questionId, tags: [questions.find((question) => question.id === item.questionId)?.category ?? "Avaliação"], correct: item.correct }));
   const weakSkills = getWeakSkills(results);
   const now = new Date().toISOString();
-  await db.prepare("INSERT INTO section_exam_attempts (user_id, exam_id, score, total, percentage, passed, answers_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(auth.sub, exam.id, score, total, percentage, passed ? 1 : 0, JSON.stringify({ answers, results }), now).run();
+  assertSupabase(await db.from("section_exam_attempts").insert({ user_id: auth.sub, exam_id: exam.id, score, total, percentage, passed: passed ? 1 : 0, answers_json: JSON.stringify({ answers, results }), created_at: now }));
   const updated = await computeAcademicState(auth.sub);
   return Response.json({ result: { title: exam.title, score, total, percentage, passed, passScore, weakSkills, review }, academic: updated, nextStep: getNextLearningStep(updated) });
 }

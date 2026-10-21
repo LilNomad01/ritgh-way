@@ -8,31 +8,72 @@ function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of readdirSync('drizzle').filter(name => name.endsWith('.sql')).sort()) sqlite.exec(readFileSync(`drizzle/${name}`, 'utf8'));
   function prepare(sql) { let args = []; return { bind(...values) { args = values; return this; }, async first() { return sqlite.prepare(sql).get(...args) ?? null; }, async all() { return { results: sqlite.prepare(sql).all(...args) }; }, async run() { return sqlite.prepare(sql).run(...args); } }; }
-  return { sqlite, d1: { prepare, batch: statements => Promise.all(statements.map(statement => statement.all())) } };
+  return { sqlite, d1: { prepare, batch: statements => Promise.all(statements.map(statement => statement.all())) }, supabase: supabaseMock(sqlite) };
 }
-async function load(path, d1) {
+function supabaseMock(sqlite) {
+  return { from(table) {
+    let operation = 'select', selection = '*', values, options = {}, single = false, filters = [], orders = [], rowLimit;
+    const builder = {
+      select(columns = '*') { selection = columns; return builder; },
+      insert(input) { operation = 'insert'; values = input; return builder; },
+      upsert(input, config = {}) { operation = 'upsert'; values = input; options = config; return builder; },
+      eq(column, value) { filters.push({ sql: `${column} = ?`, args: [value] }); return builder; },
+      not(column, operator) { if (operator === 'is') filters.push({ sql: `${column} IS NOT NULL`, args: [] }); return builder; },
+      in(column, list) { filters.push({ sql: `${column} IN (${list.map(() => '?').join(',')})`, args: list }); return builder; },
+      order(column, config = {}) { orders.push(`${column} ${config.ascending === false ? 'DESC' : 'ASC'}`); return builder; },
+      limit(value) { rowLimit = value; return builder; },
+      maybeSingle() { single = true; return builder; },
+      single() { single = true; return builder; },
+      throwOnError() { return builder; },
+      then(resolve, reject) { try { resolve(execute()); } catch (error) { reject(error); } },
+    };
+    function columnsSql() { return selection.split(',').map(value => { const [alias, column] = value.trim().split(':'); return column ? `${column} AS ${alias}` : alias; }).join(','); }
+    function execute() {
+      if (operation === 'select') {
+        const where = filters.length ? ` WHERE ${filters.map(filter => filter.sql).join(' AND ')}` : '';
+        const order = orders.length ? ` ORDER BY ${orders.join(',')}` : '';
+        const limit = rowLimit ? ` LIMIT ${rowLimit}` : '';
+        const rows = sqlite.prepare(`SELECT ${columnsSql()} FROM ${table}${where}${order}${limit}`).all(...filters.flatMap(filter => filter.args));
+        return { data: single ? rows[0] ?? null : rows, error: null };
+      }
+      const rows = Array.isArray(values) ? values : [values];
+      let lastId;
+      for (const row of rows) {
+        const columns = Object.keys(row); const placeholders = columns.map(() => '?').join(',');
+        const prefix = operation === 'upsert' && options.ignoreDuplicates ? 'INSERT OR IGNORE' : 'INSERT';
+        const result = sqlite.prepare(`${prefix} INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`).run(...columns.map(column => row[column]));
+        lastId = Number(result.lastInsertRowid);
+      }
+      if (!selection || selection === '*') return { data: null, error: null };
+      const created = sqlite.prepare(`SELECT ${columnsSql()} FROM ${table} WHERE id = ?`).get(lastId) ?? null;
+      return { data: single ? created : created ? [created] : [], error: null };
+    }
+    return builder;
+  } };
+}
+async function load(path, supabase) {
   const helper = ts.transpileModule(readFileSync('app/lib/learning-progress.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   const helperUrl = `data:text/javascript;base64,${Buffer.from(helper).toString('base64')}`;
-  const source = readFileSync(path, 'utf8').replace(/import \{ getD1 \} from [^;]+;/, 'const getD1 = () => globalThis.__testD1;').replace('"./learning-progress"', `"${helperUrl}"`);
-  globalThis.__testD1 = d1;
+  const source = readFileSync(path, 'utf8').replace(/import \{ assertSupabase, getSupabase \} from [^;]+;/, 'const getSupabase = () => globalThis.__testSupabase; const assertSupabase = result => { if (result.error) throw result.error; return result.data; };').replace('"./learning-progress"', `"${helperUrl}"`);
+  globalThis.__testSupabase = supabase;
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
   return import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}#${Math.random()}`);
 }
 test('all migrations apply; legacy video and progress survive adding a second video', async () => {
-  const { sqlite, d1 } = database();
+  const { sqlite, supabase } = database();
   sqlite.exec(`INSERT INTO course_modules (id,title,level,position) VALUES(1,'Foundation','Básico',1);
     INSERT INTO course_sections (id,module_id,title,position) VALUES(1,1,'Greetings',1);
     INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(1,1,'Meeting people','lessons/1/original',1);
     INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer) VALUES(1,'Greeting','Say hello','Hello');
     INSERT INTO video_progress(user_id,lesson_id,position_seconds,duration_seconds,progress_percent,status,updated_at) VALUES(7,1,120,120,100,'completed','2026-09-12T12:00:00Z');`);
-  const { importLegacyVideo, lessonVideos } = await load('app/lib/lesson-videos.ts', d1);
+  const { importLegacyVideo, lessonVideos } = await load('app/lib/lesson-videos.ts', supabase);
   await importLegacyVideo(1); await importLegacyVideo(1);
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS count FROM lesson_videos').get().count, 1);
   let videos = await lessonVideos(1,7);
   assert.equal(videos[0].completed,1);
   assert.equal(videos[0].savedPosition,120);
   sqlite.exec("INSERT INTO lesson_videos(lesson_id,video_key,title,position) VALUES(1,'lessons/1/second','Conversation',1)");
-  const { computeAcademicState } = await load('app/lib/academic.ts', d1);
+  const { computeAcademicState } = await load('app/lib/academic.ts', supabase);
   let state = (await computeAcademicState(7)).lessonStates[0];
   assert.equal(state.videoStatus,'watching');
   assert.equal(state.videoPercent,50);
@@ -48,14 +89,14 @@ test('all migrations apply; legacy video and progress survive adding a second vi
 });
 
 test('finalized lesson, mastery, section barrier, retries and next step stay consistent after recomputation', async () => {
-  const { sqlite, d1 } = database();
+  const { sqlite, supabase } = database();
   sqlite.exec(`INSERT INTO course_modules(id,title,level,position) VALUES(1,'Foundation','Básico',1);
     INSERT INTO course_sections(id,module_id,title,position) VALUES(1,1,'Greetings',1),(2,1,'Conversation',2);
     INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(1,1,'Lesson 1','video/1',1),(2,1,'Lesson without video',NULL,2),(3,2,'Lesson 3','video/3',1);
     INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,skills_json) VALUES(1,'Greetings','Say hello','Hello','["greetings"]');
     INSERT INTO section_exams(id,section_id,title,status,pass_score) VALUES(1,1,'Exam 1','Publicado',70),(2,2,'Exam 2','Publicado',80);
     INSERT INTO section_exam_questions(exam_id,prompt,correct_answer,status) VALUES(1,'Say hello','Hello','Publicado'),(2,'Say bye','Goodbye','Publicado');`);
-  const { computeAcademicState, getNextLearningStep } = await load('app/lib/academic.ts', d1);
+  const { computeAcademicState, getNextLearningStep } = await load('app/lib/academic.ts', supabase);
   let state = await computeAcademicState(7);
   assert.equal(getNextLearningStep(state).href, '/aulas/1');
   assert.equal(state.lessonStates[2].unlocked, false, 'direct URL to next section must remain locked');

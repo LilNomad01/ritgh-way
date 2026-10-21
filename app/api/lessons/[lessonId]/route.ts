@@ -1,5 +1,5 @@
 import { lessonVideos } from "../../../lib/lesson-videos";
-import { getD1 } from "../../../../db";
+import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../lib/academic";
 import { requireAuth } from "../../../lib/auth";
 
@@ -11,27 +11,24 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const { lessonId: rawLessonId } = await params;
   const lessonId = Number(rawLessonId);
   if (!lessonId) return Response.json({ error: "Aula inválida." }, { status: 400 });
-  const db = getD1();
-  const [lesson, academic] = await Promise.all([
-    db.prepare(`SELECT l.id, l.section_id AS sectionId, l.title, l.description, l.duration, l.lesson_type AS lessonType,
-      l.video_key AS videoKey, l.video_name AS videoName, l.video_size AS videoSize,
-      l.thumbnail_key AS imageKey, l.thumbnail_mobile_key AS imageMobileKey, l.thumbnail_fit AS imageFit, l.thumbnail_zoom AS imageZoom,
-      l.thumbnail_overlay AS imageOverlay, l.thumbnail_position_x AS imagePositionX, l.thumbnail_position_y AS imagePositionY,
-      s.title AS sectionTitle, s.description AS sectionDescription, m.id AS moduleId, m.title AS moduleTitle, m.level
-      FROM lessons l JOIN course_sections s ON s.id = l.section_id JOIN course_modules m ON m.id = s.module_id
-      WHERE l.id = ? AND l.status = 'Publicado' AND s.status = 'Publicado' AND m.status = 'Publicado' LIMIT 1`).bind(lessonId).first(),
+  const db = getSupabase();
+  const [lessonResult, academic] = await Promise.all([
+    db.from("lessons").select("id,section_id,title,description,duration,lesson_type,video_key,video_name,video_size,thumbnail_key,thumbnail_mobile_key,thumbnail_fit,thumbnail_zoom,thumbnail_overlay,thumbnail_position_x,thumbnail_position_y,course_sections!inner(id,title,description,status,module_id,course_modules!inner(id,title,level,status))").eq("id", lessonId).eq("status", "Publicado").eq("course_sections.status", "Publicado").eq("course_sections.course_modules.status", "Publicado").maybeSingle(),
     computeAcademicState(auth.sub),
   ]);
+  const rawLesson = assertSupabase(lessonResult);
+  const section = rawLesson?.course_sections as unknown as { id: number; title: string; description: string; module_id: number; course_modules: { id: number; title: string; level: string } } | undefined;
+  const lesson = rawLesson && section ? { id: rawLesson.id, sectionId: rawLesson.section_id, title: rawLesson.title, description: rawLesson.description, duration: rawLesson.duration, lessonType: rawLesson.lesson_type, videoKey: rawLesson.video_key, videoName: rawLesson.video_name, videoSize: rawLesson.video_size, imageKey: rawLesson.thumbnail_key, imageMobileKey: rawLesson.thumbnail_mobile_key, imageFit: rawLesson.thumbnail_fit, imageZoom: rawLesson.thumbnail_zoom, imageOverlay: rawLesson.thumbnail_overlay, imagePositionX: rawLesson.thumbnail_position_x, imagePositionY: rawLesson.thumbnail_position_y, sectionTitle: section.title, sectionDescription: section.description, moduleId: section.course_modules.id, moduleTitle: section.course_modules.title, level: section.course_modules.level } : null;
   if (!lesson) return Response.json({ error: "Aula não encontrada." }, { status: 404 });
   const state = (academic.lessonStates as LessonAcademicState[]).find((item: LessonAcademicState) => item.lessonId === lessonId);
   if (!state) return Response.json({ error: "Aula indisponível." }, { status: 404 });
   const [videos, lastAttempt] = await Promise.all([
     lessonVideos(lessonId, auth.sub),
-    db.prepare("SELECT answers_json AS answersJson FROM exercise_attempts WHERE user_id = ? AND lesson_id = ? ORDER BY created_at DESC, id DESC LIMIT 1").bind(auth.sub, lessonId).first<{ answersJson?: string }>(),
+    db.from("exercise_attempts").select("answers_json").eq("user_id", auth.sub).eq("lesson_id", lessonId).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle(),
   ]);
   let review: { prompt: string; answer: string; correctAnswer: string; explanation: string }[] = [];
   try {
-    const stored = JSON.parse(lastAttempt?.answersJson ?? "null") as { results?: { correct?: boolean; prompt?: string; answer?: string; correctAnswer?: string; explanation?: string }[] } | null;
+    const stored = JSON.parse(assertSupabase(lastAttempt)?.answers_json ?? "null") as { results?: { correct?: boolean; prompt?: string; answer?: string; correctAnswer?: string; explanation?: string }[] } | null;
     review = Array.isArray(stored?.results) ? stored.results.filter((item) => item.correct === false && item.prompt && item.correctAnswer).map((item) => ({ prompt: item.prompt ?? "", answer: item.answer ?? "", correctAnswer: item.correctAnswer ?? "", explanation: item.explanation ?? "" })) : [];
   } catch { /* Older attempts stored only an array of answers. */ }
   return Response.json({ lesson, state, videos, review, nextStep: state.completed ? getNextLearningStep(academic) : null }, { headers: { "cache-control": "private, no-store" } });
