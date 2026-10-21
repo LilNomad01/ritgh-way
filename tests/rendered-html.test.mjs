@@ -109,3 +109,11 @@ test("writes new media to private Supabase Storage with legacy R2 fallback", asy
   assert.match(migration, /values \('course-media', 'course-media', false/);
 });
 
+test("verifies Supabase before deleting legacy D1 and R2", async () => {
+  const cleanup = await source("app/api/internal/legacy-cleanup/route.ts");
+  assert.match(cleanup, /DELETE_D1_R2_AFTER_SUPABASE_VERIFICATION/);
+  assert.match(cleanup, /verificação de chaves falhou/);
+  assert.match(cleanup, /Number\(existing\.size\) !== object\.size/);
+  assert.match(cleanup, /DELETE FROM \$\{table\.name\}/);
+});
+
