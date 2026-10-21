@@ -24,7 +24,6 @@ test("defines an Android-installable web app manifest", async () => {
   assert.match(manifest, /sizes:\s*"512x512"/);
   assert.match(manifest, /purpose:\s*"maskable"/);
 });
-
 test("registers a service worker with offline and safe runtime caching", async () => {
   const [support, worker, offline] = await Promise.all([
     source("app/components/PwaSupport.tsx"),
@@ -110,10 +109,3 @@ test("writes new media to private Supabase Storage with legacy R2 fallback", asy
   assert.match(migration, /values \('course-media', 'course-media', false/);
 });
 
-test("copies every D1 table to Supabase and verifies source keys", async () => {
-  const migration = await source("app/api/internal/database-migration/route.ts");
-  assert.match(migration, /"speaking_attempts"/);
-  assert.match(migration, /SELECT \* FROM \$\{table\.name\}/);
-  assert.match(migration, /upsert\(rows, \{ onConflict: table\.conflict \}\)/);
-  assert.match(migration, /não foram confirmados no Supabase/);
-});

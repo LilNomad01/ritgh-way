@@ -1,7 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getStorageBucket, getSupabase } from "../../../../db/supabase";
 import { assertSameOrigin, requireAdmin } from "../../../lib/auth";
-import { hasMigrationAccess } from "../../../lib/migration-auth";
 import { objectInfo, removeStorageObject, uploadObject } from "../../../lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +25,8 @@ async function referencedKeys() {
 }
 
 export async function GET(request: Request) {
-  if (!hasMigrationAccess(request)) {
-    const auth = await requireAdmin(request);
-    if (auth instanceof Response) return auth;
-  }
+  const auth = await requireAdmin(request);
+  if (auth instanceof Response) return auth;
   const keys = await referencedKeys();
   const states = await Promise.all(keys.map(async key => ({ key, migrated: Boolean(await objectInfo(key).catch(() => null)) })));
   return Response.json({ bucket: getStorageBucket(), total: states.length, migrated: states.filter(state => state.migrated).length, pending: states.filter(state => !state.migrated).map(state => state.key) }, { headers: { "cache-control": "private, no-store" } });
@@ -37,11 +34,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (!hasMigrationAccess(request)) {
-      if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
-      const auth = await requireAdmin(request);
-      if (auth instanceof Response) return auth;
-    }
+    if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
     const key = String((await request.json() as { key?: string }).key ?? "");
     if (!(await referencedKeys()).includes(key)) return Response.json({ error: "Arquivo não referenciado pelo curso." }, { status: 400 });
     const existing = await objectInfo(key).catch(() => null);
