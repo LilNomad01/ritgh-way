@@ -115,6 +115,8 @@ test("verifies Supabase before deleting legacy D1 and R2", async () => {
   assert.match(cleanup, /verificação de chaves falhou/);
   assert.match(cleanup, /Number\(existing\.size\) !== object\.size/);
   assert.match(cleanup, /export async function GET/);
+  assert.match(cleanup, /right-way-chunked-r2-archive-v1/);
+  assert.match(cleanup, /ARCHIVE_CHUNK_SIZE = 40_000_000/);
   assert.match(cleanup, /DELETE FROM \$\{table\.name\}/);
 });
 

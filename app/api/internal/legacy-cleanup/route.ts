@@ -6,6 +6,8 @@ import { objectInfo, removeStorageObject, uploadObject } from "../../../lib/stor
 export const dynamic = "force-dynamic";
 
 const CONFIRMATION = "DELETE_D1_R2_AFTER_SUPABASE_VERIFICATION";
+const DIRECT_UPLOAD_LIMIT = 49_000_000;
+const ARCHIVE_CHUNK_SIZE = 40_000_000;
 const TABLES = [
   { name: "students", conflict: "id" },
   { name: "course_modules", conflict: "id" },
@@ -36,6 +38,44 @@ function authorized(request: Request) {
 
 function rowKey(row: Record<string, unknown>, conflict: string) {
   return conflict.split(",").map(column => String(row[column])).join("\u0000");
+}
+
+async function archiveLargeObject(bucket: R2Bucket, object: { key: string; size: number }) {
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(object.key))))
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const prefix = `_legacy-archive/${hash}`;
+  const chunks: { key: string; size: number }[] = [];
+  for (let offset = 0, index = 0; offset < object.size; offset += ARCHIVE_CHUNK_SIZE, index += 1) {
+    const size = Math.min(ARCHIVE_CHUNK_SIZE, object.size - offset);
+    const key = `${prefix}/part-${String(index).padStart(3, "0")}.bin`;
+    const existing = await objectInfo(key).catch(() => null);
+    if (!existing) {
+      const source = await bucket.get(object.key, { range: { offset, length: size } });
+      if (!source) throw new Error(`${object.key}: objeto desapareceu durante o arquivamento.`);
+      const bytes = await source.arrayBuffer();
+      if (bytes.byteLength !== size) throw new Error(`${object.key}: parte ${index} incompleta.`);
+      await uploadObject(key, bytes, "application/octet-stream");
+    }
+    const copied = await objectInfo(key);
+    if (!copied || Number(copied.size) !== size) throw new Error(`${object.key}: parte ${index} não passou na verificação.`);
+    chunks.push({ key, size });
+  }
+  const head = await bucket.head(object.key);
+  const manifest = JSON.stringify({
+    format: "right-way-chunked-r2-archive-v1",
+    originalKey: object.key,
+    originalSize: object.size,
+    contentType: head?.httpMetadata?.contentType || "application/octet-stream",
+    chunks,
+  });
+  const manifestKey = `${prefix}/manifest.json`;
+  const existingManifest = await objectInfo(manifestKey).catch(() => null);
+  if (!existingManifest) await uploadObject(manifestKey, new Blob([manifest]), "application/json");
+  const copiedManifest = await objectInfo(manifestKey);
+  if (!copiedManifest || Number(copiedManifest.size) !== new TextEncoder().encode(manifest).byteLength) {
+    throw new Error(`${object.key}: manifesto não passou na verificação.`);
+  }
 }
 
 async function syncD1() {
@@ -70,6 +110,10 @@ async function syncR2() {
     const existing = await objectInfo(object.key).catch(() => null);
     if (existing) {
       if (Number(existing.size) !== object.size) throw new Error(`${object.key}: tamanho diverge no Supabase.`);
+      continue;
+    }
+    if (object.size > DIRECT_UPLOAD_LIMIT) {
+      await archiveLargeObject(bucket, object);
       continue;
     }
     const legacy = await bucket.get(object.key);
