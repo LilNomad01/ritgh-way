@@ -114,6 +114,7 @@ test("verifies Supabase before deleting legacy D1 and R2", async () => {
   assert.match(cleanup, /DELETE_D1_R2_AFTER_SUPABASE_VERIFICATION/);
   assert.match(cleanup, /verificação de chaves falhou/);
   assert.match(cleanup, /Number\(existing\.size\) !== object\.size/);
+  assert.match(cleanup, /export async function GET/);
   assert.match(cleanup, /DELETE FROM \$\{table\.name\}/);
 });
 

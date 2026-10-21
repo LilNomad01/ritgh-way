@@ -84,6 +84,19 @@ async function syncR2() {
   return objects;
 }
 
+export async function GET(request: Request) {
+  if (!authorized(request)) return new Response("Not found", { status: 404 });
+  const bucket = env.VIDEOS as R2Bucket;
+  const objects: { key: string; size: number }[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ cursor });
+    objects.push(...page.objects.map(object => ({ key: object.key, size: object.size })));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return Response.json({ objects });
+}
+
 export async function POST(request: Request) {
   if (!authorized(request)) return new Response("Not found", { status: 404 });
   const body = await request.json().catch(() => null) as { confirm?: string } | null;
