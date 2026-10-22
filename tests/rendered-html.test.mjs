@@ -90,33 +90,23 @@ test("keeps schema maintenance out of request hot paths", async () => {
   assert.match(admin, /const db = getSupabase\(\)/);
 });
 
-test("writes new media to private Supabase Storage with legacy R2 fallback", async () => {
-  const [storage, videos, storageMigration, panel, migration] = await Promise.all([
+test("writes and serves media only through private Supabase Storage", async () => {
+  const [storage, videos, panel, migration, hosting] = await Promise.all([
     source("app/lib/storage.ts"),
     source("app/api/videos/route.ts"),
-    source("app/api/admin/storage-migration/route.ts"),
     source("app/components/AdminPanel.tsx"),
     source("supabase/migrations/20261020120000_complete_supabase_cutover.sql"),
+    source(".openai/hosting.json"),
   ]);
   assert.match(storage, /getSupabase\(\)\.storage\.from\(getStorageBucket\(\)\)\.upload/);
-  assert.match(storage, /legacy\?\.get/);
+  assert.match(storage, /createSignedUrl/);
+  assert.doesNotMatch(storage, /env\.VIDEOS|legacy\?\.get/);
   assert.doesNotMatch(storage, /\.put\(/);
-  assert.match(storageMigration, /Arquivo não referenciado pelo curso/);
-  assert.match(storageMigration, /Number\(copied\.size\) !== legacy\.size/);
   assert.match(videos, /createSignedUploadUrl/);
   assert.match(panel, /new Upload\(file/);
   assert.match(panel, /"x-signature"/);
   assert.match(migration, /values \('course-media', 'course-media', false/);
-});
-
-test("verifies Supabase before deleting legacy D1 and R2", async () => {
-  const cleanup = await source("app/api/internal/legacy-cleanup/route.ts");
-  assert.match(cleanup, /DELETE_D1_R2_AFTER_SUPABASE_VERIFICATION/);
-  assert.match(cleanup, /verificação de chaves falhou/);
-  assert.match(cleanup, /Number\(existing\.size\) !== object\.size/);
-  assert.match(cleanup, /export async function GET/);
-  assert.match(cleanup, /right-way-chunked-r2-archive-v1/);
-  assert.match(cleanup, /ARCHIVE_CHUNK_SIZE = 40_000_000/);
-  assert.match(cleanup, /DELETE FROM \$\{table\.name\}/);
+  assert.match(hosting, /"d1": null/);
+  assert.match(hosting, /"r2": null/);
 });
 

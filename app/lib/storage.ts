@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { assertSupabase, getStorageBucket, getSupabase } from "../../db/supabase";
 
 export async function uploadObject(key: string, body: Blob | ArrayBuffer | Uint8Array | ReadableStream, contentType: string) {
@@ -11,7 +10,6 @@ export async function uploadObject(key: string, body: Blob | ArrayBuffer | Uint8
 
 export async function removeObject(key: string) {
   await removeStorageObject(key);
-  await (env.VIDEOS as R2Bucket | undefined)?.delete(key).catch(() => undefined);
 }
 
 export async function removeStorageObject(key: string) {
@@ -40,19 +38,5 @@ export async function serveObject(request: Request, key: string, cacheControl: s
     }
   }
 
-  const legacy = env.VIDEOS as R2Bucket | undefined;
-  const object = await legacy?.get(key, { range: request.headers });
-  if (!object) return null;
-  const headers = new Headers({ "cache-control": cacheControl, "accept-ranges": "bytes", "x-content-type-options": "nosniff" });
-  object.writeHttpMetadata(headers);
-  headers.set("etag", object.httpEtag);
-  if (object.range && "offset" in object.range) {
-    const start = object.range.offset ?? 0;
-    const length = object.range.length ?? object.size;
-    headers.set("content-range", `bytes ${start}-${start + length - 1}/${object.size}`);
-    headers.set("content-length", String(length));
-    return new Response(object.body, { status: 206, headers });
-  }
-  headers.set("content-length", String(object.size));
-  return new Response(object.body, { headers });
+  return null;
 }
