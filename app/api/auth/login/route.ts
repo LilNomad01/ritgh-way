@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     for (const cookie of session.cookies) headers.append("set-cookie", cookie);
     return new Response(JSON.stringify({ profile: { fullName: account.fullName, email: account.email, level: account.level, placementScore: account.placementScore, role: account.role, mustChangePassword: Boolean(account.mustChangePassword) } }), { status: 200, headers });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Não foi possível entrar." }, { status: 500 });
+    console.error("Login failed", error);
+    return Response.json({ error: "Não foi possível entrar. Tente novamente." }, { status: 500 });
   }
 }

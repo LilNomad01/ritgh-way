@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { assertSupabase, getSupabase } from "../../db/supabase";
+export { passwordPolicyError } from "./password-policy";
 
 const encoder = new TextEncoder();
 const ACCESS_COOKIE = "rw_access";
@@ -85,13 +86,6 @@ async function derivePasswordHash(password: string, salt: string, iterations: nu
   const material = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations }, material, 256);
   return bytesToBase64Url(new Uint8Array(bits));
-}
-
-export function passwordPolicyError(password: string) {
-  if (password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
-    return "Use pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo.";
-  }
-  return null;
 }
 
 export async function hashPassword(password: string, salt: string) {

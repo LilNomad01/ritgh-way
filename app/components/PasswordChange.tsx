@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { passwordPolicyError } from "../lib/password-policy";
 
 export function PasswordChange({ onClose, onChanged, required = false }: { onClose: () => void; onChanged: () => void; required?: boolean }) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -12,6 +13,8 @@ export function PasswordChange({ onClose, onChanged, required = false }: { onClo
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (newPassword !== confirmPassword) { setError("A confirmação não corresponde à nova senha."); return; }
+    const policyError = passwordPolicyError(newPassword);
+    if (policyError) { setError(policyError); return; }
     setSaving(true);
     setError("");
     try {
@@ -34,9 +37,9 @@ export function PasswordChange({ onClose, onChanged, required = false }: { onClo
     <div className="editor-head"><div><span className="eyebrow">SEGURANÇA DA CONTA</span><h2>Crie sua senha definitiva</h2></div>{!required && <button type="button" onClick={onClose}>×</button>}</div>
     <p>A senha inicial foi criada apenas para o primeiro acesso. Troque-a agora para proteger sua conta.</p>
     <label>Senha atual<input required type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-    <label>Nova senha<input required minLength={12} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-    <label>Confirme a nova senha<input required minLength={12} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
-    <small>Use 12 ou mais caracteres, incluindo maiúscula, minúscula, número e símbolo.</small>
+    <label>Nova senha<input required minLength={10} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+    <label>Confirme a nova senha<input required minLength={10} type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+    <small>Use 10 ou mais caracteres.</small>
     {error && <div className="admin-alert">{error}</div>}
     <div className="editor-actions">{!required && <button type="button" onClick={onClose}>Agora não</button>}<button type="submit" disabled={saving}>{saving ? "Protegendo conta..." : "Salvar nova senha"}</button></div>
   </form></div>;
