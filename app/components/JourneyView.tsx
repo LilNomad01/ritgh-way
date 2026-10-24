@@ -5,34 +5,32 @@ import { useRouter } from "next/navigation";
 import { CourseData, CourseLesson, orderedCourse } from "../lib/course";
 import { getNextLearningStep } from "../lib/learning-progress";
 import { MaterialIcon } from "./MaterialIcon";
+import { getCachedCourseData, loadCourseData } from "../lib/client-data";
 
 const emptyCourse: CourseData = { modules: [], sections: [], lessons: [], academic: { lessonStates: [], sectionStates: [], moduleStates: [] } };
 const statusIcon = { completed: "check", in_progress: "progress_activity", available: "play_arrow", locked: "lock" } as const;
 
 export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: CourseLesson) => void; onOpenExam: (sectionId: number) => void }) {
   const router = useRouter();
-  const [course, setCourse] = useState<CourseData>(emptyCourse);
-  const [loading, setLoading] = useState(true);
+  const cachedCourse = getCachedCourseData();
+  const [course, setCourse] = useState<CourseData>(cachedCourse ?? emptyCourse);
+  const [loading, setLoading] = useState(!cachedCourse);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const [expandedModuleId, setExpandedModuleId] = useState<number | null>();
   const [expandedSectionId, setExpandedSectionId] = useState<number | null>();
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/content", { cache: "no-store", signal: controller.signal })
-      .then(response => {
-        if (!response.ok) throw new Error("Não foi possível carregar sua jornada.");
-        return response.json() as Promise<CourseData>;
-      })
-      .then(setCourse)
+    let cancelled = false;
+    loadCourseData()
+      .then(data => { if (!cancelled) setCourse(data); })
       .catch(cause => {
-        if (!controller.signal.aborted) setError(cause.message);
+        if (!cancelled) setError(cause.message);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!cancelled) setLoading(false);
       });
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, [retry]);
 
   const ordered = useMemo(() => orderedCourse(course), [course]);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MaterialIcon } from "./MaterialIcon";
+import { getCachedDashboardData, loadDashboardData } from "../lib/client-data";
 
 type CourseModule = {
   id: number;
@@ -42,23 +43,19 @@ function minutesAndSeconds(seconds: number) {
 }
 
 export function StudentDashboard({ compact = false }: { compact?: boolean }) {
-  const [data, setData] = useState<Summary | null>(null);
+  const [data, setData] = useState<Summary | null>(() => getCachedDashboardData<Summary>());
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/dashboard", { cache: "no-store", signal: controller.signal })
-      .then(async response => {
-        if (!response.ok) throw new Error("Seu progresso está indisponível no momento.");
-        return response.json() as Promise<Summary>;
-      })
-      .then(setData)
+    let cancelled = false;
+    loadDashboardData<Summary>()
+      .then(summary => { if (!cancelled) setData(summary); })
       .catch(error => {
-        if (!controller.signal.aborted) setError(error.message);
+        if (!cancelled) setError(error.message);
       });
-    return () => controller.abort();
+    return () => { cancelled = true; };
   }, [retry]);
 
   if (error) return <section className="dashboard-error section-block" role="alert"><p>{error}</p><button className="outline-button" onClick={() => { setError(""); setRetry(value => value + 1); }}>Tentar novamente</button></section>;

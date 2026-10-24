@@ -8,6 +8,7 @@ import { SpeakingRecorder } from "./SpeakingRecorder";
 import { AnswerComparison } from "./AnswerComparison";
 import { assessAnswer, isChoice, isListening, isSpeaking, type exerciseTypes } from "../lib/exercise-answers";
 import { getWeakSkills, MASTERY_THRESHOLD, skillLabel, type LearningStep } from "../lib/learning-progress";
+import { clearLearningClientCache } from "../lib/client-data";
 
 type Exercise = {
   id: number;
@@ -85,6 +86,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
     if (!response.ok) throw new Error();
     const data = await response.json() as { nextStep?: LearningStep; session?: { score?: number } };
     if (action === "complete") {
+      clearLearningClientCache();
       setNextStep(data.nextStep ?? null);
     }
     return data;

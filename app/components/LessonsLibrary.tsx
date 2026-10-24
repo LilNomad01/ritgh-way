@@ -7,6 +7,7 @@ import { StudentDashboard } from "./StudentDashboard";
 import { MaterialIcon } from "./MaterialIcon";
 import { AnswerComparison } from "./AnswerComparison";
 import { skillLabel, type LearningStep } from "../lib/learning-progress";
+import { getCachedCourseData, loadCourseData } from "../lib/client-data";
 
 const emptyCourse: CourseData = { modules: [], sections: [], lessons: [], academic: { lessonStates: [], sectionStates: [], moduleStates: [] } };
 
@@ -118,10 +119,11 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
 }
 
 export function LessonsLibrary({ lessonId, onOpenLesson, onBack, onPracticeLesson, onOpenExam, onContinue }: { lessonId?: number; onOpenLesson: (lessonId: number) => void; onBack: () => void; onPracticeLesson: (lessonId: number) => void; onOpenExam: (sectionId: number) => void; onContinue: (href: string) => void }) {
-  const [data, setData] = useState<CourseData>(emptyCourse);
+  const cachedCourse = getCachedCourseData();
+  const [data, setData] = useState<CourseData>(cachedCourse ?? emptyCourse);
   const [selectedModule, setSelectedModule] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => { let cancelled = false; fetch("/api/content", { cache: "no-store" }).then((response) => response.ok ? response.json() as Promise<CourseData> : Promise.reject()).then((content) => { if (!cancelled) setData(content); }).catch(() => undefined).finally(() => { if (!cancelled) setLoading(false); }); return () => { cancelled = true; }; }, []);
+  const [loading, setLoading] = useState(!cachedCourse);
+  useEffect(() => { let cancelled = false; loadCourseData().then((content) => { if (!cancelled) setData(content); }).catch(() => undefined).finally(() => { if (!cancelled) setLoading(false); }); return () => { cancelled = true; }; }, []);
   const ordered = useMemo(() => orderedCourse(data), [data]);
   if (lessonId) return <div className="library-page page-view course-rails-page"><LessonPage lessonId={lessonId} onBack={onBack} onPractice={onPracticeLesson} onContinue={onContinue} /></div>;
   const availableLessons = data.academic?.lessonStates.filter(state => state.ready && !state.reviewOnly).length ?? 0;

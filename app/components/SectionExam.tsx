@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnswerComparison } from "./AnswerComparison";
 import { MaterialIcon } from "./MaterialIcon";
 import { skillLabel, type LearningStep, type SkillResult } from "../lib/learning-progress";
+import { clearLearningClientCache } from "../lib/client-data";
 
 type ExamQuestion = { id: number; type: string; category: string; prompt: string; options: string[] };
 type ExamPayload = { exam: { id: number; sectionId: number; title: string; description: string; passScore: number; sectionTitle: string; moduleTitle: string; level: string; questionCount: number; firstLessonId?: number }; questions: ExamQuestion[]; state: { examUnlocked: boolean; examPassed: boolean; completedLessons: number; lessonCount: number; bestExamPercentage?: number; examAttempts: number; weakSkills: SkillResult[] } };
@@ -42,6 +43,7 @@ export function SectionExam({ sectionId, session, onBack, onStart, onNextSection
       const response = await fetch(`/api/exams/${sectionId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answers }) });
       const data = await response.json() as { result?: Result; nextStep?: LearningStep; error?: string };
       if (!response.ok || !data.result) throw new Error(data.error ?? "Não foi possível salvar o resultado.");
+      clearLearningClientCache();
       setResult(data.result);
       setNextStep(data.nextStep ?? null);
     } catch (submitError) {

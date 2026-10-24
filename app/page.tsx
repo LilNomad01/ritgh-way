@@ -8,6 +8,7 @@ import { Onboarding } from "./components/Onboarding";
 import { StudentDashboard } from "./components/StudentDashboard";
 import { PasswordChange } from "./components/PasswordChange";
 import { InstallAppButton } from "./components/PwaSupport";
+import { clearPrivateClientCache, getCachedSessionProfile, loadSessionProfile, type SessionProfile } from "./lib/client-data";
 
 const AdminPanel = dynamic(() => import("./components/AdminPanel").then((module) => module.AdminPanel));
 const ExercisePlayer = dynamic(() => import("./components/ExercisePlayer").then((module) => module.ExercisePlayer));
@@ -16,7 +17,7 @@ const LessonsLibrary = dynamic(() => import("./components/LessonsLibrary").then(
 const PracticeHub = dynamic(() => import("./components/PracticeHub").then((module) => module.PracticeHub));
 const SectionExam = dynamic(() => import("./components/SectionExam").then((module) => module.SectionExam));
 
-type Profile = { fullName: string; email: string; level: string; placementScore: number; goal?: string; dailyMinutes?: number; role?: "admin" | "student"; mustChangePassword?: boolean };
+type Profile = SessionProfile;
 
 const navItems = [
   { label: "Início", icon: "home" },
@@ -27,39 +28,23 @@ const navItems = [
 ];
 
 
-const demoProfile: Profile = { fullName: "Alex Martins", email: "alex@rightway.com", level: "Intermediário", placementScore: 6 };
-
-async function fetchSessionProfile() {
-  const sessionResponse = await fetch("/api/auth/session", { cache: "no-store", credentials: "same-origin" });
-  if (sessionResponse.ok) return sessionResponse.json() as Promise<{ profile: Profile }>;
-
-  if (sessionResponse.status === 401) {
-    const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
-    if (refreshResponse.ok) {
-      const retriedSession = await fetch("/api/auth/session", { cache: "no-store", credentials: "same-origin" });
-      if (retriedSession.ok) return retriedSession.json() as Promise<{ profile: Profile }>;
-    }
-  }
-
-  throw new Error("anonymous");
-}
-
 function Achievements() { return <div className="page-view"><section className="section-block"><span className="eyebrow">SUAS CONQUISTAS</span><h1>Seu progresso, sem números inventados.</h1><p>As medalhas ainda estão em preparação. Acompanhe abaixo as atividades realmente concluídas.</p></section><StudentDashboard /></div>; }
 
 type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
 
 export function RightWayApp({ adminEntry = false, initialView = "Início", lessonId, practiceLessonId, practiceSession = false, examSectionId, examSession = false }: { adminEntry?: boolean; initialView?: AppView; lessonId?: number; practiceLessonId?: number; practiceSession?: boolean; examSectionId?: number; examSession?: boolean }) {
   const router = useRouter();
+  const cachedSession = getCachedSessionProfile();
   const [dark, setDark] = useState(() => typeof window !== "undefined" && localStorage.getItem("rightway-theme") === "dark");
   const [active, setActive] = useState<string>(adminEntry ? "Admin" : initialView);
-  const [showOnboarding, setShowOnboarding] = useState(true);
-  const [profile, setProfile] = useState<Profile>(demoProfile);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(!cachedSession);
+  const [profile, setProfile] = useState<Profile | null>(cachedSession?.profile ?? null);
+  const [checkingSession, setCheckingSession] = useState(!cachedSession);
   const [passwordChangeOpen, setPasswordChangeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    fetchSessionProfile().then((result) => {
+    loadSessionProfile().then((result) => {
       setProfile(result.profile);
       setShowOnboarding(false);
       setPasswordChangeOpen(Boolean(result.profile.mustChangePassword));
@@ -79,6 +64,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   }
 
   function finishOnboarding(nextProfile: Profile) {
+    clearPrivateClientCache();
     setProfile(nextProfile);
     setShowOnboarding(false);
     setPasswordChangeOpen(Boolean(nextProfile.mustChangePassword));
@@ -86,13 +72,15 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    clearPrivateClientCache();
+    setProfile(null);
     setShowOnboarding(true);
     setActive("Início");
   }
 
   if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
-  if (showOnboarding) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry ? "login" : "home"} />;
+  if (showOnboarding || !profile) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry ? "login" : "home"} />;
 
   const firstName = profile.fullName.split(" ")[0] || "Aluno";
   const initials = profile.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
@@ -125,7 +113,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
         </aside>
       </div>}
       {practiceSession && practiceLessonId && <ExercisePlayer lessonId={practiceLessonId} onClose={() => router.push(`/praticar/${practiceLessonId}`)} />}
-      {passwordChangeOpen && <PasswordChange required={Boolean(profile.mustChangePassword)} onClose={() => setPasswordChangeOpen(false)} onChanged={() => { setProfile((current) => ({ ...current, mustChangePassword: false })); setPasswordChangeOpen(false); }} />}
+      {passwordChangeOpen && <PasswordChange required={Boolean(profile.mustChangePassword)} onClose={() => setPasswordChangeOpen(false)} onChanged={() => { clearPrivateClientCache(); setProfile((current) => current ? ({ ...current, mustChangePassword: false }) : current); setPasswordChangeOpen(false); }} />}
     </main>
   );
 }
