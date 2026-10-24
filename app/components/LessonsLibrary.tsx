@@ -7,7 +7,7 @@ import { StudentDashboard } from "./StudentDashboard";
 import { MaterialIcon } from "./MaterialIcon";
 import { AnswerComparison } from "./AnswerComparison";
 import { skillLabel, type LearningStep } from "../lib/learning-progress";
-import { getCachedCourseData, loadCourseData } from "../lib/client-data";
+import { clearLearningClientCache, getCachedCourseData, loadCourseData } from "../lib/client-data";
 
 const emptyCourse: CourseData = { modules: [], sections: [], lessons: [], academic: { lessonStates: [], sectionStates: [], moduleStates: [] } };
 
@@ -21,7 +21,7 @@ function LessonArtwork({ lesson }: { lesson: CourseLesson }) {
 }
 
 function videoLabel(title: string, index: number) {
-  return /\.[a-z0-9]{2,4}$/i.test(title.trim()) ? `Vídeo ${index + 1}` : `${index + 1}. ${title}`;
+  return `${index + 1}. ${title.trim() || `Vídeo ${index + 1}`}`;
 }
 
 function stateLabel(state?: LessonState) {
@@ -61,6 +61,8 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
   const [activeVideo, setActiveVideo] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedSecond = useRef(0);
+  const maxWatchedSecond = useRef(0);
+  const restoringSeek = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,10 +76,11 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
     try {
     const response = await fetch(`/api/lessons/${lessonId}/video-progress`, { method: "POST", headers: { "content-type": "application/json" }, keepalive: true, body: JSON.stringify({ videoId: selectedVideo?.id, positionSeconds: Math.max(0, video.currentTime - (selectedVideo?.startSeconds ?? 0)), durationSeconds: Math.max(1, Math.min(selectedVideo?.endSeconds ?? video.duration, video.duration) - (selectedVideo?.startSeconds ?? 0)), ended }) });
     if (response.ok) {
-      const data = await response.json() as { state?: LessonState; nextStep?: LearningStep | null };
+      const data = await response.json() as { progress?: { positionSeconds: number; completed: boolean }; state?: LessonState; nextStep?: LearningStep | null };
       setSaveError("");
-      const savedPosition = Math.max(0, video.currentTime - (selectedVideo?.startSeconds ?? 0));
-      if (data.state) setPayload((current) => current ? { ...current, state: data.state as LessonState, nextStep: data.nextStep ?? current.nextStep, videos: current.videos.map(item => item.id === selectedVideo?.id ? { ...item, savedPosition, completed: ended ? 1 : item.completed, updatedAt: new Date().toISOString() } : item) } : current);
+      clearLearningClientCache();
+      if (data.progress) maxWatchedSecond.current = Math.max(maxWatchedSecond.current, data.progress.positionSeconds);
+      if (data.state) setPayload((current) => current ? { ...current, state: data.state as LessonState, nextStep: data.nextStep ?? current.nextStep, videos: current.videos.map(item => item.id === selectedVideo?.id ? { ...item, savedPosition: data.progress?.positionSeconds ?? item.savedPosition, completed: data.progress?.completed ? 1 : item.completed, updatedAt: new Date().toISOString() } : item) } : current);
     } else { setSaveError("Não foi possível salvar sua posição. Pause o vídeo e tente novamente."); }
     } catch { setSaveError("Sem conexão. Sua posição ainda não foi salva."); }
   }
@@ -86,12 +89,23 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
     const video = videoRef.current;
     if (!video) return;
     if (selectedVideo?.endSeconds && video.currentTime >= selectedVideo.endSeconds && !video.paused) { video.pause(); void saveVideoProgress(true); return; }
-    const currentSecond = Math.floor(video.currentTime);
+    const currentSecond = Math.max(0, Math.floor(video.currentTime - (selectedVideo?.startSeconds ?? 0)));
+    if (!selectedVideoCompleted && !video.seeking && currentSecond <= maxWatchedSecond.current + 2) maxWatchedSecond.current = Math.max(maxWatchedSecond.current, currentSecond);
     if (Math.abs(currentSecond - lastSavedSecond.current) >= 5) { lastSavedSecond.current = currentSecond; void saveVideoProgress(); }
+  }
+
+  function handleSeeking() {
+    const video = videoRef.current;
+    if (!video || selectedVideoCompleted || restoringSeek.current) return;
+    const start = selectedVideo?.startSeconds ?? 0;
+    if (video.currentTime - start <= maxWatchedSecond.current + 1) return;
+    restoringSeek.current = true;
+    video.currentTime = start + maxWatchedSecond.current;
   }
 
   const recentVideo = payload?.videos.filter(item => item.updatedAt).sort((a,b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
   const selectedVideo = payload?.videos.find(item => item.id === activeVideo) ?? recentVideo ?? payload?.videos[0];
+  const selectedVideoCompleted = selectedVideo?.id === 0 ? payload?.state.videoStatus === "completed" : selectedVideo?.completed === 1;
   useEffect(() => { exitSave.current = () => { void saveVideoProgress(); }; });
   useEffect(() => {
     const save = () => exitSave.current();
@@ -107,8 +121,8 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
   return <div className="lesson-player-page">
     <button className="module-back-button" onClick={onBack}><MaterialIcon name="arrow_back" />{lesson.sectionTitle}</button>
     <div className="lesson-title-block"><span className="eyebrow">{lesson.level} · {lesson.sectionTitle}</span><h1>{lesson.title}</h1><p>{lesson.description || "Assista à videoaula e depois pratique o conteúdo para concluir esta etapa."}</p></div>
-    <section className="lesson-video-shell"><div className="lesson-player-video">{selectedVideo ? <video key={selectedVideo.id} ref={videoRef} controls preload="metadata" src={`/api/videos?key=${encodeURIComponent(selectedVideo.videoKey)}`} onLoadedMetadata={() => { const video = videoRef.current; if (video) { video.currentTime = Math.min(selectedVideo.startSeconds + (selectedVideo.savedPosition ?? (selectedVideo.id === 0 ? state.videoPosition : 0)), Math.max(0, video.duration - 1)); lastSavedSecond.current = Math.floor(video.currentTime); } }} onTimeUpdate={handleTimeUpdate} onSeeked={() => void saveVideoProgress()} onPause={() => void saveVideoProgress()} onEnded={() => void saveVideoProgress(true)} /> : <div><MaterialIcon name="movie" /><strong>Sem videoaula nesta etapa</strong><span>Continue pela prática quando ela estiver disponível.</span></div>}</div><aside><span className="eyebrow">AULA {String(lesson.position).padStart(2, "0")}</span><h2>{lesson.title}</h2><div className="lesson-player-meta"><span><MaterialIcon name="schedule" />{lesson.duration}</span><span><MaterialIcon name="school" />{lesson.lessonType}</span></div><p>{lesson.description || lesson.sectionDescription}</p></aside></section>
-    {payload.videos.length > 0 && <section className="section-block">{saveError && <p role="alert" className="practice-save-error">{saveError}<button className="outline-button" onClick={() => void saveVideoProgress()}>Tentar salvar</button></p>}<h2>Vídeos desta aula</h2><div className="video-playlist">{payload.videos.map((item, index) => <button className={item.id === selectedVideo?.id ? "outline-button active" : "outline-button"} key={item.id} onClick={async () => { videoRef.current?.pause(); await saveVideoProgress(); setActiveVideo(item.id); }}><MaterialIcon name={item.completed ? "check_circle" : "play_circle"} />{videoLabel(item.title, index)}</button>)}</div></section>}
+    <section className="lesson-video-shell"><div className="lesson-player-video">{selectedVideo ? <video key={selectedVideo.id} ref={videoRef} controls preload="metadata" src={`/api/videos?key=${encodeURIComponent(selectedVideo.videoKey)}`} onLoadedMetadata={() => { const video = videoRef.current; if (video) { const savedPosition = selectedVideo.savedPosition ?? (selectedVideo.id === 0 ? state.videoPosition : 0); video.currentTime = Math.min(selectedVideo.startSeconds + savedPosition, Math.max(0, video.duration - 1)); lastSavedSecond.current = Math.floor(savedPosition); maxWatchedSecond.current = savedPosition; restoringSeek.current = false; } }} onPlay={() => { if (!selectedVideo.updatedAt && !selectedVideoCompleted) void saveVideoProgress(); }} onSeeking={handleSeeking} onTimeUpdate={handleTimeUpdate} onSeeked={() => { if (restoringSeek.current) restoringSeek.current = false; else void saveVideoProgress(); }} onPause={() => void saveVideoProgress()} onEnded={() => void saveVideoProgress(true)} /> : <div><MaterialIcon name="movie" /><strong>Sem videoaula nesta etapa</strong><span>Continue pela prática quando ela estiver disponível.</span></div>}</div><aside><span className="eyebrow">AULA {String(lesson.position).padStart(2, "0")}</span><h2>{lesson.title}</h2><div className="lesson-player-meta"><span><MaterialIcon name="schedule" />{lesson.duration}</span><span><MaterialIcon name="school" />{lesson.lessonType}</span></div><p>{lesson.description || lesson.sectionDescription}</p>{selectedVideo && !selectedVideoCompleted && <p className="video-watch-rule"><MaterialIcon name="lock" />O avanço fica bloqueado na primeira exibição. Voltar é permitido.</p>}</aside></section>
+    {(payload.videos.length > 1 || saveError) && <section className="section-block video-list-section">{saveError && <p role="alert" className="practice-save-error">{saveError}<button className="outline-button" onClick={() => void saveVideoProgress()}>Tentar salvar</button></p>}{payload.videos.length > 1 && <><h2>Vídeos desta aula</h2><div className="video-playlist">{payload.videos.map((item, index) => <button className={item.id === selectedVideo?.id ? "outline-button active" : "outline-button"} key={item.id} onClick={async () => { videoRef.current?.pause(); await saveVideoProgress(); setActiveVideo(item.id); }}><MaterialIcon name={item.completed ? "check_circle" : "play_circle"} /><span>{videoLabel(item.title, index)}</span></button>)}</div></>}</section>}
     <section className="lesson-completion-panel"><div className="lesson-progress-copy"><span className="eyebrow">SEU PROGRESSO</span><h2>Complete as etapas desta aula</h2><p>Finalizar a aula e dominar o conteúdo são conquistas diferentes.</p></div>
       <div className="completion-step"><span className={state.videoStatus === "completed" ? "done" : state.videoStatus === "watching" ? "current" : ""}><MaterialIcon name={state.videoStatus === "completed" ? "check" : "play_arrow"} /></span><div><small>ETAPA 1</small><strong>Videoaula</strong><ProgressBar value={state.videoPercent} /><p>{!payload.videos.length ? "Esta aula não exige vídeo" : state.videoStatus === "completed" ? "Vídeo concluído" : state.videoStatus === "watching" ? `${state.videoPercent}% assistido` : "Ainda não iniciado"}</p></div></div>
       <div className="completion-step"><span className={state.exercisesCompleted ? "done" : practiceReady ? "current" : "locked"}><MaterialIcon name={state.exercisesCompleted ? "check" : practiceReady ? "quiz" : "lock"} /></span><div><small>ETAPA 2</small><strong>Prática desta aula</strong><p>{state.exerciseCount ? `${state.exerciseCount} exercícios · aproximadamente ${Math.max(5, state.exerciseCount * 2)} minutos` : "Esta aula não exige exercícios"}</p>{state.exerciseCount > 0 && <button disabled={!practiceReady} onClick={() => onPractice(lesson.id)}>{state.exercisesCompleted ? "Refazer exercícios" : practiceReady ? "Começar exercícios" : "Conclua o vídeo para liberar"}<MaterialIcon name={practiceReady ? "arrow_forward" : "lock"} /></button>}</div></div>

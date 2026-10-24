@@ -781,7 +781,11 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 .module-poster-copy > strong { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
 @media (max-width: 600px) { .module-poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .module-poster-copy { padding: 14px; } .module-poster-copy h3 { font-size: 1.1rem; } .module-poster-copy p { display: none; } .module-poster-copy > strong, .module-poster-copy > span { font-size: .875rem; } }
 .video-playlist, .video-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+.video-playlist button { max-width: min(100%, 440px); display: inline-flex; align-items: center; gap: 8px; text-align: left; }
+.video-playlist button span:not(.material-symbols-rounded) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .video-playlist .active { background: #102f69; color: white; }
+.video-watch-rule { display: flex; align-items: center; gap: 7px; margin-top: 13px!important; color: var(--blue)!important; font-weight: 700; }
+.video-watch-rule .material-symbols-rounded { font-size: 17px; }
 .video-library article { align-items: start; }
 .video-library article > div { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .video-library small { display: block; margin: 8px 0; }
