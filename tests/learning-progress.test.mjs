@@ -92,14 +92,14 @@ test('finalized lesson, mastery, section barrier, retries and next step stay con
   const { sqlite, supabase } = database();
   sqlite.exec(`INSERT INTO course_modules(id,title,level,position) VALUES(1,'Foundation','Básico',1);
     INSERT INTO course_sections(id,module_id,title,position) VALUES(1,1,'Greetings',1),(2,1,'Conversation',2);
-    INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(1,1,'Lesson 1','video/1',1),(2,1,'Lesson without video',NULL,2),(3,2,'Lesson 3','video/3',1);
-    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,skills_json) VALUES(1,'Greetings','Say hello','Hello','["greetings"]');
+    INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(1,1,'Lesson 1','video/1',1),(3,2,'Lesson 3','video/3',1);
+    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,skills_json) VALUES(1,'Greetings','Say hello','Hello','["greetings"]'),(3,'Farewell','Say bye','Goodbye','["farewell"]');
     INSERT INTO section_exams(id,section_id,title,status,pass_score) VALUES(1,1,'Exam 1','Publicado',70),(2,2,'Exam 2','Publicado',80);
     INSERT INTO section_exam_questions(exam_id,prompt,correct_answer,status) VALUES(1,'Say hello','Hello','Publicado'),(2,'Say bye','Goodbye','Publicado');`);
   const { computeAcademicState, getNextLearningStep } = await load('app/lib/academic.ts', supabase);
   let state = await computeAcademicState(7);
   assert.equal(getNextLearningStep(state).href, '/aulas/1');
-  assert.equal(state.lessonStates[2].unlocked, false, 'direct URL to next section must remain locked');
+  assert.equal(state.lessonStates.find(item => item.lessonId === 3).unlocked, false, 'direct URL to next section must remain locked');
   sqlite.exec(`INSERT INTO video_progress(user_id,lesson_id,position_seconds,duration_seconds,progress_percent,status,updated_at) VALUES(7,1,60,60,100,'completed','2026-09-12T12:00:00Z');`);
   state = await computeAcademicState(7);
   assert.equal(getNextLearningStep(state).href, '/praticar/1/sessao');
@@ -110,7 +110,6 @@ test('finalized lesson, mastery, section barrier, retries and next step stay con
   assert.equal(state.lessonStates[0].lastPercentage,60);
   assert.equal(state.lessonStates[0].reviewRecommended,true);
   assert.equal(state.lessonStates[0].weakSkills[0].skill,'polite_requests');
-  assert.equal(state.lessonStates[1].completed,true, 'lesson without video and exercises should not block progression');
   assert.equal(getNextLearningStep(state).href,'/prova/1');
   assert.equal(state.sectionStates[1].unlocked,false);
   sqlite.prepare('INSERT INTO exercise_attempts(user_id,lesson_id,lesson_slug,score,total,answers_json,created_at) VALUES(?,?,?,?,?,?,?)')
@@ -133,9 +132,59 @@ test('finalized lesson, mastery, section barrier, retries and next step stay con
   assert.equal(getNextLearningStep(state).href,'/aulas/3');
   assert.equal(getNextLearningStep(await computeAcademicState(7)).href,'/aulas/3', 'state survives a fresh request');
   sqlite.exec(`INSERT INTO video_progress(user_id,lesson_id,position_seconds,duration_seconds,progress_percent,status,updated_at) VALUES(7,3,60,60,100,'completed','2026-09-12T12:04:00Z');
+    INSERT INTO exercise_attempts(user_id,lesson_id,lesson_slug,score,total,created_at) VALUES(7,3,'lesson-3-practice',1,1,'2026-09-12T12:04:30Z');
     INSERT INTO section_exam_attempts(user_id,exam_id,score,total,percentage,passed,answers_json,created_at) VALUES(7,2,9,10,90,1,'[]','2026-09-12T12:05:00Z');`);
   state = await computeAcademicState(7);
   assert.equal(getNextLearningStep(state).kind,'complete');
+  sqlite.close();
+});
+
+test('published lesson without video or exercise stays in preparation and blocks progression', async () => {
+  const { sqlite, supabase } = database();
+  sqlite.exec(`INSERT INTO course_modules(id,title,level,position) VALUES(1,'Foundation','Básico',1);
+    INSERT INTO course_sections(id,module_id,title,position) VALUES(1,1,'Greetings',1),(2,1,'Next section',2);
+    INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(1,1,'Incomplete lesson',NULL,1),(2,2,'Later lesson','video/2',1);
+    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer) VALUES(2,'Later','Answer','Answer');`);
+  const { computeAcademicState, getNextLearningStep } = await load('app/lib/academic.ts', supabase);
+  const state = await computeAcademicState(7);
+  assert.equal(state.lessonStates[0].ready,false);
+  assert.equal(state.lessonStates[0].completed,false);
+  assert.equal(state.lessonStates[1].unlocked,false);
+  assert.equal(state.sectionStates[0].lessonCount,0, 'unready lessons stay outside the denominator');
+  assert.equal(getNextLearningStep(state).kind,'pending');
+  sqlite.close();
+});
+
+test('placement level opens its matching module at zero and keeps users isolated', async () => {
+  const { sqlite, supabase } = database();
+  sqlite.exec(`INSERT INTO course_modules(id,title,level,status,position) VALUES
+      (1,'Start speaking','Básico','Publicado',1),(2,'Real conversations','Intermediário','Publicado',2);
+    INSERT INTO course_sections(id,module_id,title,status,position) VALUES
+      (1,1,'Basics','Publicado',1),(2,2,'Conversation','Publicado',1);
+    INSERT INTO lessons(id,section_id,title,video_key,status,position) VALUES
+      (1,1,'Hello','video/hello','Publicado',1),(2,2,'Coffee shop','video/coffee','Publicado',1);
+    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,status) VALUES
+      (1,'Hello','Say hello','Hello','Publicado'),(2,'Coffee','Order coffee','A coffee, please','Publicado');
+    INSERT INTO user_accounts(id,email,full_name,password_hash,password_salt,role,status,level,placement_score,created_at,updated_at) VALUES
+      (20,'intermediate@example.com','Intermediate','hash','salt','student','active','Intermediário',5,'2026-10-23','2026-10-23'),
+      (21,'basic@example.com','Basic','hash','salt','student','active','Básico',3,'2026-10-23','2026-10-23');
+    INSERT INTO video_progress(user_id,lesson_id,position_seconds,duration_seconds,progress_percent,status,updated_at)
+      VALUES(20,2,60,60,100,'completed','2026-10-23T12:00:00Z');
+    INSERT INTO exercise_attempts(user_id,lesson_id,lesson_slug,score,total,created_at)
+      VALUES(20,2,'coffee-shop-practice',1,1,'2026-10-23T12:01:00Z');`);
+  const { computeAcademicState } = await load('app/lib/academic.ts', supabase);
+  const intermediate = await computeAcademicState(20);
+  assert.equal(intermediate.moduleStates[0].reviewOnly, true);
+  assert.equal(intermediate.moduleStates[0].unlocked, true);
+  assert.equal(intermediate.moduleStates[1].reviewOnly, false);
+  assert.equal(intermediate.moduleStates[1].unlocked, true);
+  assert.equal(intermediate.moduleStates[1].percent, 85);
+
+  const basic = await computeAcademicState(21);
+  assert.equal(basic.moduleStates[0].reviewOnly, false);
+  assert.equal(basic.moduleStates[0].percent, 0);
+  assert.equal(basic.moduleStates[1].unlocked, false);
+  assert.equal(basic.lessonStates.find(state => state.lessonId === 2).completed, false);
   sqlite.close();
 });
 

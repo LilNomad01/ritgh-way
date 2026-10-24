@@ -35,6 +35,7 @@ export async function GET(request: Request) {
       ...((assertSupabase(videoResult) ?? []) as { lessonId: number; currentIndex: number; total: number; updatedAt: string }[]).map(row => ({ ...row, kind: "video" })),
     ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const states: LessonAcademicState[] = academic.lessonStates;
+    const requiredStates = states.filter(item => item.ready && !item.reviewOnly);
     const step = getNextLearningStep(academic);
     const lesson = lessons.find(item => item.id === step?.lessonId);
     const section = academic.sectionStates.find((item: SectionAcademicState) => item.sectionId === step?.sectionId);
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
     const totalAnswers = practiceRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const correctAnswers = practiceRows.reduce((sum, row) => sum + Number(row.score || 0), 0);
     const examAverage = examRows.length ? Math.round(examRows.reduce((sum, row) => sum + Number(row.percentage || 0), 0) / examRows.length) : null;
-    return Response.json({ completedLessons: states.filter(item => item.completed).length, totalLessons: states.length, practiceAttempts: practiceRows.length, accuracy: totalAnswers ? Math.round(100 * correctAnswers / totalAnswers) : null, examAttempts: examRows.length, examAverage, modules, resume }, { headers: { 'cache-control': 'private, no-store' } });
+    return Response.json({ completedLessons: requiredStates.filter(item => item.completed).length, totalLessons: requiredStates.length, practiceAttempts: practiceRows.length, accuracy: totalAnswers ? Math.round(100 * correctAnswers / totalAnswers) : null, examAttempts: examRows.length, examAverage, modules, resume }, { headers: { 'cache-control': 'private, no-store' } });
   } catch (error) {
     console.error('Dashboard unavailable', error);
     return Response.json({ error: 'Não foi possível carregar seu progresso. Tente novamente.' }, { status: 503 });

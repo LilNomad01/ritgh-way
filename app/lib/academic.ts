@@ -4,6 +4,8 @@ import { getNextLearningStep, getWeakSkills, masteryReached, MASTERY_THRESHOLD, 
 export type LessonAcademicState = {
   lessonId: number;
   sectionId: number;
+  ready: boolean;
+  reviewOnly: boolean;
   unlocked: boolean;
   completed: boolean;
   videoStatus: "not_started" | "watching" | "completed";
@@ -23,6 +25,7 @@ export type LessonAcademicState = {
 
 export type SectionAcademicState = {
   sectionId: number;
+  reviewOnly: boolean;
   unlocked: boolean;
   completed: boolean;
   lessonCount: number;
@@ -42,6 +45,7 @@ export type SectionAcademicState = {
 
 export type ModuleAcademicState = {
   moduleId: number;
+  reviewOnly: boolean;
   unlocked: boolean;
   completed: boolean;
   sectionCount: number;
@@ -50,7 +54,7 @@ export type ModuleAcademicState = {
   status: "locked" | "available" | "in_progress" | "completed";
 };
 
-type ModuleRow = { id: number; position: number };
+type ModuleRow = { id: number; position: number; level: string };
 type SectionRow = { id: number; moduleId: number; position: number };
 type LessonRow = { id: number; sectionId: number; position: number; videoKey: string | null };
 type VideoRow = { lessonId: number; status: LessonAcademicState["videoStatus"]; progressPercent: number; positionSeconds: number; durationSeconds: number };
@@ -61,8 +65,8 @@ type ExamAttemptRow = { examId: number; passed: number; percentage: number; answ
 
 export async function computeAcademicState(userId: number): Promise<{ lessonStates: LessonAcademicState[]; sectionStates: SectionAcademicState[]; moduleStates: ModuleAcademicState[] }> {
   const db = getSupabase();
-  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, questionResult, examAttemptResult, videoItemsResult, videoItemProgressResult] = await Promise.all([
-    db.from("course_modules").select("id,position").eq("status", "Publicado").order("position").order("id"),
+  const [moduleResult, sectionResult, lessonResult, videoResult, attemptResult, exerciseResult, examResult, questionResult, examAttemptResult, videoItemsResult, videoItemProgressResult, accountResult] = await Promise.all([
+    db.from("course_modules").select("id,position,level").eq("status", "Publicado").order("position").order("id"),
     db.from("course_sections").select("id,moduleId:module_id,position").eq("status", "Publicado").order("module_id").order("position").order("id"),
     db.from("lessons").select("id,sectionId:section_id,position,videoKey:video_key").eq("status", "Publicado").order("section_id").order("position").order("id"),
     db.from("video_progress").select("lessonId:lesson_id,status,progressPercent:progress_percent,positionSeconds:position_seconds,durationSeconds:duration_seconds").eq("user_id", userId),
@@ -73,6 +77,7 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
     db.from("section_exam_attempts").select("examId:exam_id,passed,percentage,answersJson:answers_json").eq("user_id", userId).order("created_at", { ascending: false }).order("id", { ascending: false }),
     db.from("lesson_videos").select("id,lessonId:lesson_id,position").order("position").order("id"),
     db.from("video_item_progress").select("videoId:video_id,completed,positionSeconds:position_seconds,durationSeconds:duration_seconds,updatedAt:updated_at").eq("user_id", userId),
+    db.from("user_accounts").select("level").eq("id", userId).maybeSingle(),
   ]);
   const modules = assertSupabase(moduleResult) as ModuleRow[];
   const sections = assertSupabase(sectionResult) as SectionRow[];
@@ -103,61 +108,74 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
   const lessonStates: LessonAcademicState[] = [];
   const sectionStates: SectionAcademicState[] = [];
   const moduleStates: ModuleAcademicState[] = [];
+  const normalizeLevel = (value: string) => {
+    const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return normalized.startsWith("comec") ? "basico" : normalized;
+  };
+  const account = assertSupabase(accountResult) as { level: string } | null;
+  const requestedLevel = normalizeLevel(account?.level ?? "");
+  const matchedModule = modules.findIndex((courseModule) => normalizeLevel(courseModule.level) === requestedLevel);
+  const startModuleIndex = matchedModule >= 0 ? matchedModule : 0;
   let previousModuleCompleted = true;
 
-  for (const courseModule of modules) {
-    const moduleUnlocked = previousModuleCompleted;
+  for (const [moduleIndex, courseModule] of modules.entries()) {
+    const reviewOnly = moduleIndex < startModuleIndex;
+    const moduleUnlocked = reviewOnly || moduleIndex === startModuleIndex || previousModuleCompleted;
     const moduleSections = sections.filter((section) => section.moduleId === courseModule.id);
     let previousSectionCompleted = true;
     const currentSectionStates: SectionAcademicState[] = [];
     for (const section of moduleSections) {
-      const sectionUnlocked = moduleUnlocked && previousSectionCompleted;
+      const sectionUnlocked = reviewOnly || (moduleUnlocked && previousSectionCompleted);
       const sectionLessons = lessons.filter((lesson) => lesson.sectionId === section.id);
       let previousLessonCompleted = true;
       const currentLessonStates: LessonAcademicState[] = [];
       for (const lesson of sectionLessons) {
         const video = videos.get(lesson.id);
-        const videoStatus = !video && !lesson.videoKey && !groups.has(lesson.id) ? "completed" : video?.status ?? "not_started";
+        const hasVideo = Boolean(lesson.videoKey || groups.has(lesson.id));
+        const videoStatus = video?.status ?? "not_started";
         const exerciseCount = exerciseCounts.get(lesson.id) ?? 0;
+        const ready = hasVideo && exerciseCount > 0;
         const lessonAttempts = attempts.get(lesson.id) ?? [];
         const attemptsCount = lessonAttempts.length;
-        const exercisesCompleted = exerciseCount === 0 || attemptsCount > 0;
-        const completed = videoStatus === "completed" && exercisesCompleted;
-        const unlocked = sectionUnlocked && previousLessonCompleted;
+        const exercisesCompleted = exerciseCount > 0 && attemptsCount > 0;
+        const completed = ready && videoStatus === "completed" && exercisesCompleted;
+        const unlocked = ready && (reviewOnly || (sectionUnlocked && previousLessonCompleted));
         const started = (video?.progressPercent ?? 0) > 0 || attemptsCount > 0;
-        const status: LessonAcademicState["status"] = completed ? "completed" : !unlocked ? "locked" : started ? "in_progress" : "available";
+        const status: LessonAcademicState["status"] = completed ? "completed" : !ready || !unlocked ? "locked" : started ? "in_progress" : "available";
         const lastPercentage = attemptsCount ? scorePercentage(lessonAttempts[0].score, lessonAttempts[0].total) : undefined;
         const bestPercentage = attemptsCount ? Math.max(...lessonAttempts.map((attempt) => scorePercentage(attempt.score, attempt.total))) : undefined;
-        const state: LessonAcademicState = { lessonId: lesson.id, sectionId: section.id, unlocked, completed, videoStatus, videoPercent: videoStatus === "completed" ? 100 : Number(video?.progressPercent ?? 0), videoPosition: Number(video?.positionSeconds ?? 0), videoDuration: Number(video?.durationSeconds ?? 0), exerciseCount, exercisesCompleted, attemptsCount, lastPercentage, bestPercentage, masteryReached: masteryReached(bestPercentage), reviewRecommended: completed && exerciseCount > 0 && !masteryReached(bestPercentage), weakSkills: getWeakSkills(parseAnswerResults(lessonAttempts[0]?.answersJson)), status };
+        const state: LessonAcademicState = { lessonId: lesson.id, sectionId: section.id, ready, reviewOnly, unlocked, completed, videoStatus, videoPercent: videoStatus === "completed" ? 100 : Number(video?.progressPercent ?? 0), videoPosition: Number(video?.positionSeconds ?? 0), videoDuration: Number(video?.durationSeconds ?? 0), exerciseCount, exercisesCompleted, attemptsCount, lastPercentage, bestPercentage, masteryReached: masteryReached(bestPercentage), reviewRecommended: completed && exerciseCount > 0 && !masteryReached(bestPercentage), weakSkills: getWeakSkills(parseAnswerResults(lessonAttempts[0]?.answersJson)), status };
         lessonStates.push(state);
         currentLessonStates.push(state);
-        previousLessonCompleted = completed;
+        previousLessonCompleted = reviewOnly || completed;
       }
-      const completedLessons = currentLessonStates.filter((state) => state.completed).length;
-      const allLessonsCompleted = currentLessonStates.length > 0 && completedLessons === currentLessonStates.length;
+      const readyLessonStates = currentLessonStates.filter((state) => state.ready);
+      const completedLessons = readyLessonStates.filter((state) => state.completed).length;
+      const hasPendingContent = currentLessonStates.some((state) => !state.ready);
+      const allLessonsCompleted = readyLessonStates.length > 0 && !hasPendingContent && completedLessons === readyLessonStates.length;
       const exam = exams.get(section.id);
       const sectionExamAttempts = exam ? examAttempts.get(exam.id) ?? [] : [];
       const examPassed = sectionExamAttempts.some((attempt) => Boolean(attempt.passed));
       const completed = allLessonsCompleted && Boolean(exam) && examPassed;
       const examUnlocked = sectionUnlocked && allLessonsCompleted && Boolean(exam);
-      const rawPercent = currentLessonStates.length ? Math.round((completedLessons / currentLessonStates.length) * 85) : 0;
+      const rawPercent = readyLessonStates.length ? Math.round((completedLessons / readyLessonStates.length) * 85) : 0;
       const percent = completed ? 100 : Math.min(99, rawPercent + (examPassed ? 15 : 0));
       const started = currentLessonStates.some((state) => state.status === "in_progress" || state.completed) || sectionExamAttempts.length > 0;
       const status: SectionAcademicState["status"] = completed ? "completed" : !sectionUnlocked ? "locked" : started ? "in_progress" : "available";
       const latestExamResults = parseAnswerResults(sectionExamAttempts[0]?.answersJson);
       const lessonResults = currentLessonStates.flatMap((state) => parseAnswerResults(attempts.get(state.lessonId)?.[0]?.answersJson));
-      const sectionState: SectionAcademicState = { sectionId: section.id, unlocked: sectionUnlocked, completed, lessonCount: currentLessonStates.length, completedLessons, percent, examId: exam?.id, examTitle: exam?.title, examQuestionCount: exam?.questionCount ?? 0, examPassScore: Math.max(MASTERY_THRESHOLD, exam?.passScore ?? MASTERY_THRESHOLD), examUnlocked, examPassed, examAttempts: sectionExamAttempts.length, bestExamPercentage: sectionExamAttempts.length ? Math.max(...sectionExamAttempts.map((attempt) => attempt.percentage)) : undefined, weakSkills: getWeakSkills(latestExamResults.length ? latestExamResults : lessonResults), status };
+      const sectionState: SectionAcademicState = { sectionId: section.id, reviewOnly, unlocked: sectionUnlocked, completed, lessonCount: readyLessonStates.length, completedLessons, percent, examId: exam?.id, examTitle: exam?.title, examQuestionCount: exam?.questionCount ?? 0, examPassScore: Math.max(MASTERY_THRESHOLD, exam?.passScore ?? MASTERY_THRESHOLD), examUnlocked, examPassed, examAttempts: sectionExamAttempts.length, bestExamPercentage: sectionExamAttempts.length ? Math.max(...sectionExamAttempts.map((attempt) => attempt.percentage)) : undefined, weakSkills: getWeakSkills(latestExamResults.length ? latestExamResults : lessonResults), status };
       sectionStates.push(sectionState);
       currentSectionStates.push(sectionState);
-      previousSectionCompleted = completed;
+      previousSectionCompleted = reviewOnly || completed;
     }
     const completedSections = currentSectionStates.filter((state) => state.completed).length;
     const completed = currentSectionStates.length > 0 && completedSections === currentSectionStates.length;
     const percent = currentSectionStates.length ? Math.round(currentSectionStates.reduce((sum, state) => sum + state.percent, 0) / currentSectionStates.length) : 0;
     const started = currentSectionStates.some((state) => state.status === "in_progress" || state.completed);
     const status: ModuleAcademicState["status"] = completed ? "completed" : !moduleUnlocked ? "locked" : started ? "in_progress" : "available";
-    moduleStates.push({ moduleId: courseModule.id, unlocked: moduleUnlocked, completed, sectionCount: currentSectionStates.length, completedSections, percent, status });
-    previousModuleCompleted = completed;
+    moduleStates.push({ moduleId: courseModule.id, reviewOnly, unlocked: moduleUnlocked, completed, sectionCount: currentSectionStates.length, completedSections, percent, status });
+    if (!reviewOnly) previousModuleCompleted = completed;
   }
   return { lessonStates, sectionStates, moduleStates };
 }

@@ -61,12 +61,23 @@ function rotationVariants(value: unknown, type: string) {
   return JSON.stringify(normalized);
 }
 
+async function lessonPublicationError(db: ReturnType<typeof getSupabase>, lessonId: number, videoKey?: string | null) {
+  const [videoResult, exerciseResult] = await Promise.all([
+    db.from("lesson_videos").select("id").eq("lesson_id", lessonId).limit(1).maybeSingle(),
+    db.from("lesson_exercises").select("id").eq("lesson_id", lessonId).eq("status", "Publicado").limit(1).maybeSingle(),
+  ]);
+  const missing = [];
+  if (!videoKey && !assertSupabase(videoResult)) missing.push("vídeo");
+  if (!assertSupabase(exerciseResult)) missing.push("exercício publicado");
+  return missing.length ? `Complete ${missing.join(" e ")} antes de publicar a aula.` : null;
+}
+
 export async function GET(request: Request) {
   try {
     const auth = await requireAdmin(request);
     if (auth instanceof Response) return auth;
     const db = getSupabase();
-    const [studentResult, accountResult, moduleResult, sectionResult, lessonResult, exerciseResult, examResult, questionResult] = await Promise.all([
+    const [studentResult, accountResult, moduleResult, sectionResult, lessonResult, exerciseResult, examResult, questionResult, lessonVideoResult] = await Promise.all([
       db.from("students").select("id,fullName:full_name,email,level,placementScore:placement_score,status,createdAt:created_at").order("id", { ascending: false }),
       db.from("user_accounts").select("id,email,mustChangePassword:must_change_password,lastLoginAt:last_login_at").eq("role", "student"),
       db.from("course_modules").select("id,title,level,description,status,position,imageKey:cover_key,imageMobileKey:cover_mobile_key,imageFit:cover_fit,imageZoom:cover_zoom,imageOverlay:cover_overlay,imagePositionX:cover_position_x,imagePositionY:cover_position_y").order("position").order("id"),
@@ -75,11 +86,19 @@ export async function GET(request: Request) {
       db.from("lesson_exercises").select("id,lessonId:lesson_id,exerciseType:exercise_type,category,title,prompt,optionsJson:options_json,correctAnswer:correct_answer,acceptedAnswersJson:accepted_answers_json,explanation,speech,audioKey:audio_key,audioName:audio_name,skillsJson:skills_json,rotationVariantsJson:rotation_variants_json,status,position").order("lesson_id").order("position").order("id"),
       db.from("section_exams").select("id,sectionId:section_id,title,description,status,passScore:pass_score,position").order("section_id").order("position").order("id"),
       db.from("section_exam_questions").select("id,examId:exam_id,questionType:question_type,category,prompt,optionsJson:options_json,correctAnswer:correct_answer,acceptedAnswersJson:accepted_answers_json,explanation,status,position").order("exam_id").order("position").order("id"),
+      db.from("lesson_videos").select("lessonId:lesson_id"),
     ]);
     const accounts = (assertSupabase(accountResult) ?? []) as { id: number; email: string; mustChangePassword: number; lastLoginAt: string | null }[];
     const accountByEmail = new Map(accounts.map(account => [account.email, account]));
     const students = ((assertSupabase(studentResult) ?? []) as { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string }[]).map(student => { const account = accountByEmail.get(student.email); return { ...student, hasAccount: account ? 1 : 0, mustChangePassword: account?.mustChangePassword ?? 0, lastLoginAt: account?.lastLoginAt ?? null }; });
-    return Response.json({ students, modules: assertSupabase(moduleResult) ?? [], sections: assertSupabase(sectionResult) ?? [], lessons: assertSupabase(lessonResult) ?? [], exercises: assertSupabase(exerciseResult) ?? [], exams: assertSupabase(examResult) ?? [], examQuestions: assertSupabase(questionResult) ?? [] });
+    const exercises = (assertSupabase(exerciseResult) ?? []) as { lessonId: number; status: string }[];
+    const videoLessonIds = new Set(((assertSupabase(lessonVideoResult) ?? []) as { lessonId: number }[]).map(item => item.lessonId));
+    const lessons = ((assertSupabase(lessonResult) ?? []) as { id: number; videoKey?: string | null }[]).map(lesson => {
+      const publishedExerciseCount = exercises.filter(exercise => exercise.lessonId === lesson.id && exercise.status === "Publicado").length;
+      const hasVideo = Boolean(lesson.videoKey || videoLessonIds.has(lesson.id));
+      return { ...lesson, hasVideo, publishedExerciseCount, ready: hasVideo && publishedExerciseCount > 0 };
+    });
+    return Response.json({ students, modules: assertSupabase(moduleResult) ?? [], sections: assertSupabase(sectionResult) ?? [], lessons, exercises, exams: assertSupabase(examResult) ?? [], examQuestions: assertSupabase(questionResult) ?? [] });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Não foi possível carregar os dados." }, { status: 500 });
   }
@@ -123,6 +142,7 @@ export async function POST(request: Request) {
     } else if (payload.entity === "section") {
       const row = assertSupabase(await db.from("course_sections").insert({ module_id: Number(payload.moduleId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "lesson") {
+      if (clean(payload.status) === "Publicado") return Response.json({ error: "Crie a aula como rascunho. Envie um vídeo e publique um exercício antes de publicar." }, { status: 400 });
       const row = assertSupabase(await db.from("lessons").insert({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), duration: clean(payload.duration) || "10 min", lesson_type: clean(payload.lessonType) || "Vídeo + prática", status: clean(payload.status) || "Rascunho", position: Number(payload.position) || 0, smart_rotation: payload.smartRotation ? 1 : 0 }).select("id").single()) as { id: number } | null; id = row?.id;
     } else if (payload.entity === "exercise") {
       if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") return Response.json({ error: "Salve como rascunho, envie a gravação e depois publique." }, { status: 400 });
@@ -171,6 +191,11 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "section") {
       assertSupabase(await db.from("course_sections").update({ module_id: Number(payload.moduleId), title: clean(payload.title), description: clean(payload.description), status: clean(payload.status), position: Number(payload.position) || 0 }).eq("id", id));
     } else if (payload.entity === "lesson") {
+      const current = assertSupabase(await db.from("lessons").select("status,videoKey:video_key").eq("id", id).maybeSingle()) as { status: string; videoKey: string | null } | null;
+      if (current?.status !== "Publicado" && clean(payload.status) === "Publicado") {
+        const publicationError = await lessonPublicationError(db, id, current?.videoKey);
+        if (publicationError) return Response.json({ error: publicationError }, { status: 400 });
+      }
       assertSupabase(await db.from("lessons").update({ section_id: Number(payload.sectionId), title: clean(payload.title), description: clean(payload.description), duration: clean(payload.duration), lesson_type: clean(payload.lessonType), status: clean(payload.status), position: Number(payload.position) || 0, smart_rotation: payload.smartRotation ? 1 : 0 }).eq("id", id));
     } else if (payload.entity === "exercise") {
       const validationError = exerciseError(payload);

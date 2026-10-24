@@ -68,16 +68,17 @@ export type LearningStep = {
 };
 
 export type LearningState = {
-  lessonStates: { lessonId: number; sectionId: number; unlocked: boolean; completed: boolean; videoStatus: string; exerciseCount: number; exercisesCompleted: boolean }[];
-  sectionStates: { sectionId: number; unlocked: boolean; examId?: number; examPassed: boolean; examAttempts: number; examUnlocked: boolean }[];
+  lessonStates: { lessonId: number; sectionId: number; ready?: boolean; unlocked: boolean; completed: boolean; videoStatus: string; exerciseCount: number; exercisesCompleted: boolean }[];
+  sectionStates: { sectionId: number; reviewOnly?: boolean; unlocked: boolean; examId?: number; examPassed: boolean; examAttempts: number; examUnlocked: boolean }[];
 };
 
 export function getNextLearningStep(academic: LearningState): LearningStep | null {
   if (!academic.sectionStates.length) return null;
   for (const section of academic.sectionStates) {
-    if (!section.unlocked) continue;
+    if (!section.unlocked || section.reviewOnly) continue;
     for (const lesson of academic.lessonStates.filter((item) => item.sectionId === section.sectionId)) {
       if (lesson.completed || !lesson.unlocked) continue;
+      if (lesson.ready === false) return { kind: "pending", href: "/aulas", sectionId: section.sectionId };
       if (lesson.videoStatus === "completed" && lesson.exerciseCount > 0 && !lesson.exercisesCompleted) {
         return { kind: "practice", href: `/praticar/${lesson.lessonId}/sessao`, lessonId: lesson.lessonId, sectionId: section.sectionId };
       }

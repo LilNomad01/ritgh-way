@@ -40,7 +40,7 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
   const nextLessonState = course.academic?.lessonStates.find(state => state.lessonId === step?.lessonId);
   const nextLesson = ordered.lessons.find(lesson => lesson.id === step?.lessonId);
   const nextExam = step?.kind === "exam" || step?.kind === "review" ? course.academic?.sectionStates.find(state => state.sectionId === step.sectionId) : undefined;
-  const currentModule = ordered.modules.find(module => course.academic?.moduleStates.find(state => state.moduleId === module.id && state.unlocked && !state.completed));
+  const currentModule = ordered.modules.find(module => course.academic?.moduleStates.find(state => state.moduleId === module.id && state.unlocked && !state.completed && !state.reviewOnly));
   const nextActionTitle = nextExam?.examTitle ?? nextLesson?.title ?? (step?.kind === "complete" ? "Curso concluído" : undefined);
   const nextActionType = step?.kind === "review" ? "REVISÃO RECOMENDADA" : nextExam ? "AVALIAÇÃO LIBERADA" : step?.kind === "practice" ? "PRÁTICA PENDENTE" : nextLesson ? "PRÓXIMA AULA" : "JORNADA EM DIA";
   const nextActionDescription = nextExam
@@ -51,8 +51,8 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
       : nextLesson ? "Assista à aula e faça a prática para avançar." : "Todo o conteúdo disponível foi concluído.";
   const lessonStates = course.academic?.lessonStates ?? [];
   const sectionStates = course.academic?.sectionStates ?? [];
-  const completedLessons = lessonStates.filter(item => item.completed).length;
-  const completedSections = sectionStates.filter(item => item.completed).length;
+  const completedLessons = lessonStates.filter(item => item.ready && !item.reviewOnly && item.completed).length;
+  const completedSections = sectionStates.filter(item => !item.reviewOnly && item.completed).length;
   const scoredLessons = lessonStates.filter(item => item.bestPercentage !== undefined);
   const averageScore = scoredLessons.length ? Math.round(scoredLessons.reduce((sum, item) => sum + (item.bestPercentage ?? 0), 0) / scoredLessons.length) : undefined;
   const focus = useMemo(() => {
@@ -84,7 +84,7 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
         const moduleState = course.academic?.moduleStates.find(state => state.moduleId === courseModule.id);
         const sections = ordered.sections.filter(section => section.moduleId === courseModule.id);
         const moduleOpen = expandedModuleId === undefined ? Boolean(moduleState?.unlocked && !moduleState.completed) : expandedModuleId === courseModule.id;
-        const moduleStatus = moduleState?.completed ? "Concluído" : moduleState?.unlocked ? "Disponível" : "Bloqueado";
+        const moduleStatus = moduleState?.reviewOnly ? "Revisão" : moduleState?.completed ? "Concluído" : moduleState?.unlocked ? "Disponível" : "Bloqueado";
         return <section className={`journey-module academic-${moduleState?.status ?? "locked"}${moduleOpen ? " is-open" : ""}`} key={courseModule.id}>
           <div className="journey-level-marker"><span><MaterialIcon name={statusIcon[moduleState?.status ?? "locked"]} filled={moduleState?.status === "completed"} /></span></div>
           <div className="journey-module-card">
@@ -101,7 +101,7 @@ export function JourneyView({ onContinue, onOpenExam }: { onContinue: (lesson: C
                   {lessons.map((lesson, lessonIndex) => {
                     const lessonState = course.academic?.lessonStates.find(state => state.lessonId === lesson.id);
                     const isNext = nextLesson?.id === lesson.id;
-                    return <button className={isNext ? "is-next" : ""} disabled={!lessonState?.unlocked} onClick={() => onContinue(lesson)} key={lesson.id}><span><MaterialIcon name={statusIcon[lessonState?.status ?? "locked"]} filled={lessonState?.completed} /></span><div><small>AULA {String(lessonIndex + 1).padStart(2, "0")} · {lesson.duration}</small><strong>{lesson.title}</strong></div><b>{lessonState?.completed ? "Concluída" : lessonState?.status === "in_progress" ? "Em andamento" : lessonState?.status === "available" ? "Próxima" : "Bloqueada"}</b></button>;
+                    return <button className={isNext ? "is-next" : ""} disabled={!lessonState?.ready || !lessonState.unlocked} onClick={() => onContinue(lesson)} key={lesson.id}><span><MaterialIcon name={lessonState?.ready === false ? "construction" : statusIcon[lessonState?.status ?? "locked"]} filled={lessonState?.completed} /></span><div><small>AULA {String(lessonIndex + 1).padStart(2, "0")} · {lesson.duration}</small><strong>{lesson.title}</strong></div><b>{lessonState?.ready === false ? "Em preparação" : lessonState?.completed ? "Concluída" : lessonState?.status === "in_progress" ? "Em andamento" : lessonState?.status === "available" ? "Próxima" : "Bloqueada"}</b></button>;
                   })}
                   <button className={`journey-exam-row${nextExam?.sectionId === section.id ? " is-next" : ""}`} disabled={!sectionState?.examUnlocked && !sectionState?.examPassed} onClick={() => onOpenExam(section.id)}><span><MaterialIcon name={sectionState?.examPassed ? "workspace_premium" : sectionState?.examUnlocked ? "trophy" : "lock"} filled={sectionState?.examPassed} /></span><div><small>PROVA DA MATÉRIA</small><strong>{sectionState?.examTitle || `Prova — ${section.title}`}</strong></div><b>{sectionState?.examPassed ? "Aprovado" : sectionState?.examUnlocked ? "Liberada" : sectionState?.examId ? "Bloqueada" : "Em preparação"}</b></button>
                 </div>
