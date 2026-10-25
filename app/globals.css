@@ -1025,6 +1025,9 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 .speaking-processing small { color: var(--muted); }
 .speaking-result blockquote { margin: 18px 0; padding: 16px; border-left: 4px solid var(--red); border-radius: 0 12px 12px 0; color: var(--ink); background: #fff; font-size: 18px; font-weight: 750; }
 .speaking-result h3 { margin: 0 0 14px; }
+.speaking-comparison { margin-bottom: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #f8faff; }
+.speaking-comparison > strong { font-size: 14px; }.speaking-comparison > p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.speaking-comparison .answer-comparison { margin-bottom: 0; }
 .speaking-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-bottom: 14px; }
 .speaking-metrics > div { padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .speaking-metrics small { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 900; letter-spacing: 1px; }

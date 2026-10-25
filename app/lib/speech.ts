@@ -58,7 +58,7 @@ export async function transcribeSpeech(file: File) {
   form.set("language", "en");
   form.set("response_format", "json");
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body: form });
-  if (!response.ok) { console.error("Speech transcription failed", response.status, await response.text()); throw new Error("TRANSCRIPTION_FAILED"); }
+  if (!response.ok) { console.error("Speech transcription failed", response.status); throw new Error("TRANSCRIPTION_FAILED"); }
   const result = await response.json() as { text?: string };
   const text = result.text?.trim() ?? "";
   if (!text) throw new Error("NO_SPEECH");

@@ -53,8 +53,8 @@ export async function POST(request: Request) {
     return Response.json({ attemptId: inserted.id, attemptNumber, result }, { headers: { "cache-control": "private, no-store" } });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
-    if (code === "SPEECH_NOT_CONFIGURED") return Response.json({ error: "O serviço de transcrição ainda não foi configurado pelo administrador." }, { status: 503 });
-    if (code === "NO_SPEECH") return Response.json({ error: "Nenhuma fala foi detectada. Tente novamente em um lugar mais silencioso." }, { status: 422 });
+    if (code === "SPEECH_NOT_CONFIGURED") return Response.json({ code, error: "O serviço de transcrição ainda não foi configurado pelo administrador." }, { status: 503 });
+    if (code === "NO_SPEECH") return Response.json({ code, error: "Nenhuma fala foi detectada. Tente novamente em um lugar mais silencioso." }, { status: 422 });
     console.error("Speaking processing failed", error);
     return Response.json({ error: "Não foi possível transcrever sua fala agora. Tente novamente." }, { status: 503 });
   }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MaterialIcon } from "./MaterialIcon";
 import type { SpeakingEvaluation } from "../lib/speech";
+import { SpeakingFeedback } from "./SpeakingFeedback";
 
 type SpeakingResponse = { attemptId: number; attemptNumber: number; result: SpeakingEvaluation };
 type RecorderState = "ready" | "recording" | "review" | "processing" | "result";
@@ -11,8 +12,6 @@ function supportedMime() {
   if (typeof MediaRecorder === "undefined") return "";
   return ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(type => MediaRecorder.isTypeSupported(type)) ?? "";
 }
-
-function metricLabel(status: "correct" | "attention" | "review") { return status === "correct" ? "Muito bom" : status === "attention" ? "Pode melhorar" : "Precisa revisar"; }
 
 export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exerciseId: number; targetText: string; onConfirmed: (response: SpeakingResponse) => void }) {
   const [state, setState] = useState<RecorderState>("ready");
@@ -90,7 +89,7 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exer
     {state === "recording" && <><div className="speaking-wave" aria-hidden="true">{Array.from({ length: 16 }, (_, index) => <i key={index} />)}</div><p>Fale com naturalidade. A gravação não será enviada sem sua confirmação.</p><button type="button" className="speaking-stop" onClick={stop}><MaterialIcon name="stop" filled />Parar gravação</button></>}
     {state === "review" && <><p>Ouça antes de confirmar. Você pode gravar novamente sem enviar esta versão.</p><audio src={audioUrl} controls preload="metadata" /><div className="speaking-actions"><button type="button" className="outline-button" onClick={reset}><MaterialIcon name="refresh" />Gravar novamente</button><button type="button" className="speaking-primary" onClick={() => void confirm()}><MaterialIcon name="check" />Confirmar resposta</button></div></>}
     {state === "processing" && <div className="speaking-processing"><MaterialIcon name="progress_activity" /><strong>Transcrevendo e analisando o conteúdo…</strong><small>O áudio bruto não é armazenado.</small></div>}
-    {state === "result" && response && <div className="speaking-result"><blockquote lang="en">“{response.result.transcription}”</blockquote><h3>{response.result.summary}</h3><div className="speaking-metrics"><div data-status={response.result.intent.status}><small>INTENÇÃO</small><strong>{metricLabel(response.result.intent.status)}</strong><p>{response.result.intent.feedback}</p></div><div data-status={response.result.vocabulary.status}><small>VOCABULÁRIO</small><strong>{metricLabel(response.result.vocabulary.status)}</strong><p>{response.result.vocabulary.feedback}</p></div><div data-status={response.result.grammar.status}><small>GRAMÁTICA</small><strong>{response.result.grammar.available ? metricLabel(response.result.grammar.status) : "Sem dado confiável"}</strong><p>{response.result.grammar.feedback}</p></div><div data-status="attention"><small>PRONÚNCIA</small><strong>Não avaliada</strong><p>{response.result.pronunciation.feedback}</p></div></div><button type="button" className="outline-button" onClick={reset}><MaterialIcon name="refresh" />Fazer nova tentativa</button></div>}
+    {state === "result" && response && <><SpeakingFeedback evaluation={response.result} targetText={targetText} /><button type="button" className="outline-button" onClick={reset}><MaterialIcon name="refresh" />Fazer nova tentativa</button></>}
     {error && <p className="speaking-error" role="alert"><MaterialIcon name="error" />{error}</p>}
   </section>;
 }
