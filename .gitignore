@@ -45,5 +45,6 @@ next-env.d.ts
 /output/
 /tmp/
 /.worktrees/
+/.superpowers/
 /supabase/.temp/
 /app/api/media/route 2.ts
