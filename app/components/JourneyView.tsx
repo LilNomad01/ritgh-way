@@ -7,7 +7,6 @@ import { orderedCourse } from "../lib/course";
 import { getNextLearningStep, skillLabel } from "../lib/learning-progress";
 import { getCachedCourseData, loadCourseData } from "../lib/client-data";
 import { MaterialIcon } from "./MaterialIcon";
-import "../journey-redesign.css";
 
 const emptyCourse: CourseData = {
   modules: [],
@@ -268,14 +267,14 @@ export function JourneyView({
                 {lessons.map((lesson, lessonIndex) => {
                   const itemState = lessonStates.find(item => item.lessonId === lesson.id);
                   const status = lessonStatus(itemState);
-                  const isNext = step?.lessonId === lesson.id && step.kind !== "complete";
+                  const isNext = step?.lessonId === lesson.id && (step.kind === "video" || step.kind === "practice");
                   const available = Boolean(itemState?.ready && itemState.unlocked);
                   return <button key={lesson.id} type="button" disabled={!available}
                     className={["rwj-lesson", "rwj-lesson-" + status.type, isNext ? "is-next" : ""].join(" ")}
-                    onClick={() => onContinue(lesson)}>
+                    onClick={() => { if (isNext && step?.kind === "practice") router.push(step.href); else onContinue(lesson); }}>
                     <span className="rwj-lesson-icon"><MaterialIcon name={status.type === "done" ? "check" : status.type === "pending" ? "construction" : status.type === "locked" ? "lock" : status.type === "current" ? "play_arrow" : "play_circle"} /></span>
                     <span className="rwj-lesson-copy"><small>AULA {String(lessonIndex + 1).padStart(2, "0")}{lesson.duration ? " · " + lesson.duration : ""}</small><strong>{lesson.title}</strong></span>
-                    <span className={"rwj-status rwj-status-" + status.type}>{isNext && status.type !== "done" && status.type !== "pending" ? "Próximo passo" : status.text}</span>
+                    <span className={"rwj-status rwj-status-" + status.type}>{isNext && status.type !== "done" && status.type !== "pending" ? (step?.kind === "practice" ? "Praticar" : "Próximo passo") : status.text}</span>
                     {available && <MaterialIcon name="chevron_right" className="rwj-lesson-arrow" />}
                   </button>;
                 })}
