@@ -2,7 +2,7 @@ import { assertSupabase, getSupabase } from "../../../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
 import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
 import { assessAnswer } from "../../../../lib/exercise-answers";
-import { buildPracticePlan, parsePracticePlan, type PracticeExerciseSource } from "../../../../lib/practice-rotation";
+import { appendNewExercises, buildPracticePlan, parsePracticePlan, type PracticeExerciseSource } from "../../../../lib/practice-rotation";
 import { getWeakSkills, masteryReached, scorePercentage } from "../../../../lib/learning-progress";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +38,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   if (!sources.length) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
   const previousPlan = parsePracticePlan(current?.exercisePlanJson);
   if (payload.action === "start") {
+    if (current?.status === "active" && !payload.reset && previousPlan.length) {
+      const plan = appendNewExercises(previousPlan, sources);
+      if (plan.length !== previousPlan.length) {
+        assertSupabase(await db.from("practice_sessions").update({ exercise_plan_json: JSON.stringify(plan), total: plan.length, updated_at: now }).eq("user_id", auth.sub).eq("lesson_id", lessonId));
+      }
+      return Response.json({ session: { currentIndex: current.currentIndex, answers: parseAnswers(current.answersJson), speakingAttemptIds: parseSpeakingAttempts(current.speakingAttemptIdsJson), score: current.score, total: plan.length, status: current.status } });
+    }
     if (current?.status === "active" && !payload.reset && !previousPlan.length) {
       const plan = buildPracticePlan(sources, false);
       assertSupabase(await db.from("practice_sessions").update({ exercise_plan_json: JSON.stringify(plan), total: plan.length, updated_at: now }).eq("user_id", auth.sub).eq("lesson_id", lessonId));

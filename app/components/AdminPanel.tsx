@@ -7,6 +7,7 @@ import { VideoLibraryManager } from "./VideoLibraryManager";
 import { ExerciseEditor } from "./ExerciseEditor";
 import { MASTERY_THRESHOLD } from "../lib/learning-progress";
 import { passwordPolicyError } from "../lib/password-policy";
+import { isChoice, isListening } from "../lib/exercise-answers";
 
 type Student = { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string; hasAccount: number; mustChangePassword: number; lastLoginAt?: string };
 type Artwork = { imageKey?: string; imageMobileKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
@@ -166,10 +167,10 @@ export function AdminPanel() {
     if (editing.entity === "exercise" || editing.entity === "examQuestion") {
       const type = String(values.exerciseType ?? values.questionType);
       const options = JSON.parse(String(values.optionsJson || "[]")) as string[];
-      if (type === "choice" && (options.length < 2 || options.some(option => !option.trim()) || new Set(options.map(option => option.trim())).size !== options.length || !options.includes(String(values.correctAnswer)))) {
+      if (isChoice(type) && (options.length < 2 || options.some(option => !option.trim()) || new Set(options.map(option => option.trim())).size !== options.length || !options.includes(String(values.correctAnswer)))) {
         setError("Preencha pelo menos duas alternativas diferentes e marque qual é a correta."); return;
       }
-      values = { ...values, optionsJson: type === "choice" ? JSON.stringify(options) : "[]", ...(type === "listening" || type === "listening_transcription" ? { speech: String(values.correctAnswer) } : {}) };
+      values = { ...values, optionsJson: isChoice(type) ? JSON.stringify(options) : "[]", ...(isListening(type) && type !== "choice_listening" ? { speech: String(values.correctAnswer) } : {}) };
     }
     const hasId = Boolean(editing.values.id);
     if (editing.entity === "student" && !hasId) {

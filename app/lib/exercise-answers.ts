@@ -45,6 +45,7 @@ export function assessAnswer(answer: string, correct: string, accepted: string[]
 
 export const exerciseTypes = {
   listening_transcription: "Escutar e transcrever",
+  choice_listening: "Objetiva + Listening",
   choice: "Escolha em contexto",
   correction: "Corrigir uma frase",
   fill: "Completar em contexto",
@@ -55,6 +56,6 @@ export const exerciseTypes = {
   choice_speaking: "Objetiva + Speaking",
 } as const;
 
-export function isListening(type: string) { return type === "listening" || type === "listening_transcription"; }
+export function isListening(type: string) { return type === "listening" || type === "listening_transcription" || type === "choice_listening"; }
 export function isSpeaking(type: string) { return type === "speaking" || type === "choice_speaking"; }
-export function isChoice(type: string) { return type === "choice" || type === "choice_speaking"; }
+export function isChoice(type: string) { return type === "choice" || type === "choice_speaking" || type === "choice_listening"; }

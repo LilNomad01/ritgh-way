@@ -5,7 +5,28 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../app/lib/exercise-answers.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { assessAnswer, exerciseTypes, isChoice, isSpeaking } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const { assessAnswer, exerciseTypes, isChoice, isSpeaking, isListening } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+
+test("audio multiple choice requires both audio playback and alternatives", () => {
+  assert.equal(isListening("choice_listening"), true);
+  assert.equal(isChoice("choice_listening"), true);
+  assert.equal(isSpeaking("choice_listening"), false);
+  assert.equal(isListening("choice"), false);
+});
+
+test("new published exercises join an active plan without losing answered questions", async () => {
+  const rotation = readFileSync(new URL("../app/lib/practice-rotation.ts", import.meta.url), "utf8");
+  const output = ts.transpileModule(rotation, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const { appendNewExercises } = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
+  const old = { id: 1, type: "writing", correct: "Hello", title: "Original", options: [], accepted: [], skills: [], variantKey: -1 };
+  const added = { id: 2, type: "choice_listening", correct: "Hi", title: "New audio", optionsJson: '["Hi","Bye"]', audioKey: "audio/2/sample" };
+  const plan = appendNewExercises([old], [{ ...old, title: "Edited" }, added]);
+  assert.deepEqual(plan[0], old);
+  assert.equal(plan.length, 2);
+  assert.deepEqual(plan[1].options, ["Hi", "Bye"]);
+  assert.equal(plan[1].audioKey, "audio/2/sample");
+  assert.deepEqual(appendNewExercises(plan, [added]), plan);
+});
 
 test("dictation ignores case, spacing and punctuation", () => {
   assert.equal(assessAnswer("  could I have water please! ", "Could I have water, please?").status, "correct");

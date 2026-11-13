@@ -19,7 +19,7 @@ function exerciseError(payload: Record<string, unknown>) {
   if (clean(payload.correctAnswer).length > 1000) return "A resposta deve ter no máximo 1000 caracteres.";
   if (isListening(type)) {
     if (!clean(payload.speech)) return "Informe o texto que o aluno vai ouvir.";
-    if (normalizeAnswer(clean(payload.speech)) !== normalizeAnswer(clean(payload.correctAnswer))) return "Na transcrição, a resposta correta deve corresponder ao texto do áudio.";
+    if (type !== "choice_listening" && normalizeAnswer(clean(payload.speech)) !== normalizeAnswer(clean(payload.correctAnswer))) return "Na transcrição, a resposta correta deve corresponder ao texto do áudio.";
   }
   if (isChoice(type)) {
     const options = JSON.parse(jsonArray(payload.optionsJson, "Opções")) as string[];
@@ -200,6 +200,10 @@ export async function PUT(request: Request) {
     } else if (payload.entity === "exercise") {
       const validationError = exerciseError(payload);
       if (validationError) return Response.json({ error: validationError }, { status: 400 });
+      if (isListening(clean(payload.exerciseType)) && payload.status === "Publicado") {
+        const current = assertSupabase(await db.from("lesson_exercises").select("audio_key").eq("id", id).maybeSingle()) as { audio_key: string | null } | null;
+        if (!current?.audio_key) return Response.json({ error: "Envie a gravação antes de publicar este listening." }, { status: 400 });
+      }
       const optionsJson = isChoice(clean(payload.exerciseType)) ? jsonArray(payload.optionsJson, "Opções") : "[]";
       const acceptedAnswersJson = jsonArray(payload.acceptedAnswersJson, "Respostas aceitas");
       const skillsJson = jsonArray(payload.skillsJson, "Habilidades");

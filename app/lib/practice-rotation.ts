@@ -91,6 +91,11 @@ function shuffled<T>(items: T[]) {
   return copy;
 }
 
+export function appendNewExercises(plan: PracticePlanItem[], sources: PracticeExerciseSource[]) {
+  const existing = new Set(plan.map(item => item.id));
+  return [...plan, ...sources.filter(source => !existing.has(source.id)).map(baseItem)];
+}
+
 function baseItem(source: PracticeExerciseSource): PracticePlanItem {
   return {
     id: source.id,
@@ -113,7 +118,7 @@ export function buildPracticePlan(sources: PracticeExerciseSource[], smartRotati
   const previousById = new Map(previous.map((item) => [item.id, item.variantKey]));
   let plan = sources.map((source) => {
     const base = baseItem(source);
-    if (!smartRotation || source.type === "listening" || source.type === "listening_transcription") return base;
+    if (!smartRotation || source.type === "listening" || source.type === "listening_transcription" || source.type === "choice_listening") return base;
     const variants = parseRotationVariants(source.rotationVariantsJson);
     const candidates = [-1, ...variants.map((_, index) => index)];
     const previousKey = previousById.get(source.id);
@@ -134,7 +139,7 @@ export function buildPracticePlan(sources: PracticeExerciseSource[], smartRotati
   });
 
   if (!smartRotation) return plan;
-  plan = plan.map((item) => item.type === "choice" || item.type === "choice_speaking" ? { ...item, options: shuffled(item.options) } : item);
+  plan = plan.map((item) => item.type === "choice" || item.type === "choice_speaking" || item.type === "choice_listening" ? { ...item, options: shuffled(item.options) } : item);
   const shuffledPlan = shuffled(plan);
   if (shuffledPlan.length > 1 && previous.length === shuffledPlan.length && shuffledPlan.every((item, index) => item.id === previous[index]?.id)) {
     shuffledPlan.push(shuffledPlan.shift() as PracticePlanItem);
