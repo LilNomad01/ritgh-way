@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { runtimeEnv as env } from "./runtime-env";
 import { assessAnswer, normalizeAnswer } from "./exercise-answers";
 
 export type SpeakingStatus = "correct" | "attention" | "review";

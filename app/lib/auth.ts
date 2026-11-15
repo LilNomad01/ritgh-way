@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { runtimeEnv as env } from "./runtime-env";
 import { assertSupabase, getSupabase } from "../../db/supabase";
 export { passwordPolicyError } from "./password-policy";
 
