@@ -96,6 +96,12 @@ export function appendNewExercises(plan: PracticePlanItem[], sources: PracticeEx
   return [...plan, ...sources.filter(source => !existing.has(source.id)).map(baseItem)];
 }
 
+export function refreshPracticePlan(plan: PracticePlanItem[], sources: PracticeExerciseSource[], answeredCount: number) {
+  const answered = plan.slice(0, Math.min(Math.max(0, answeredCount), plan.length));
+  const publishedIds = new Set(sources.map(source => source.id));
+  return [...answered, ...appendNewExercises(plan.slice(answered.length).filter(item => publishedIds.has(item.id)), sources)];
+}
+
 function baseItem(source: PracticeExerciseSource): PracticePlanItem {
   return {
     id: source.id,

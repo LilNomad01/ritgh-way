@@ -43,6 +43,11 @@ export function assessAnswer(answer: string, correct: string, accepted: string[]
   return best;
 }
 
+export function answerIsCorrect(type: string, answer: string, correct: string, accepted: string[] = [], speakingStatus?: string) {
+  if (type === "speaking" && speakingStatus) return speakingStatus === "correct";
+  return assessAnswer(answer, correct, accepted).status === "correct";
+}
+
 export const exerciseTypes = {
   listening_transcription: "Escutar e transcrever",
   choice_listening: "Objetiva + Listening",

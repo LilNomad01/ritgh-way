@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { MaterialIcon } from "./MaterialIcon";
 import { RecordedAudio } from "./RecordedAudio";
 import { SpeakingRecorder } from "./SpeakingRecorder";
+import { SpeakingFeedback } from "./SpeakingFeedback";
 import { AnswerComparison } from "./AnswerComparison";
-import { assessAnswer, isChoice, isListening, isSpeaking, type exerciseTypes } from "../lib/exercise-answers";
+import { answerIsCorrect, assessAnswer, isChoice, isListening, isSpeaking, type exerciseTypes } from "../lib/exercise-answers";
 import { getWeakSkills, MASTERY_THRESHOLD, skillLabel, type LearningStep } from "../lib/learning-progress";
 import { clearLearningClientCache } from "../lib/client-data";
+import type { SpeakingEvaluation } from "../lib/speech";
 
 type Exercise = {
   id: number;
@@ -30,10 +32,6 @@ type PracticePayload = {
   session?: { currentIndex: number; answers: string[]; speakingAttemptIds?: Record<string, number>; score: number; status: "active" | "completed" };
 };
 
-function answerIsCorrect(exercise: Exercise, answer: string) {
-  return assessAnswer(answer, exercise.correct, exercise.accepted).status === "correct";
-}
-
 export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClose: () => void }) {
   const router = useRouter();
   const [payload, setPayload] = useState<PracticePayload | null>(null);
@@ -44,6 +42,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   const [finished, setFinished] = useState(false);
   const [responses, setResponses] = useState<string[]>([]);
   const [speakingAttemptIds, setSpeakingAttemptIds] = useState<Record<string, number>>({});
+  const [speakingEvaluations, setSpeakingEvaluations] = useState<Record<string, SpeakingEvaluation>>({});
   const [speakingStage, setSpeakingStage] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState("");
@@ -70,13 +69,13 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
 
   const exercises = useMemo(() => payload?.practice.exercises ?? [], [payload]);
   const exercise = exercises[current];
-  const isCorrect = exercise ? answerIsCorrect(exercise, selected) : false;
+  const isCorrect = exercise ? answerIsCorrect(exercise.type, selected, exercise.correct, exercise.accepted, speakingEvaluations[String(exercise.id)]?.intent.status) : false;
   const assessment = exercise && confirmed ? assessAnswer(selected, exercise.correct, exercise.accepted) : null;
   const hasSpeaking = exercise ? Boolean(speakingAttemptIds[String(exercise.id)]) : false;
   const canConfirm = Boolean(selected.trim()) && (!exercise || !isListening(exercise.type) || Boolean(exercise.audioKey)) && (!exercise || !isSpeaking(exercise.type) || hasSpeaking);
   const progress = useMemo(() => exercises.length ? ((finished ? exercises.length : current + 1) / exercises.length) * 100 : 0, [current, exercises.length, finished]);
-  const wrongAnswers = useMemo(() => exercises.map((item, index) => ({ exercise: item, answer: responses[index] ?? "" })).filter((item) => item.answer && !answerIsCorrect(item.exercise, item.answer)), [exercises, responses]);
-  const weakSkills = useMemo(() => getWeakSkills(exercises.map((item, index) => ({ tags: item.skills?.length ? item.skills : [item.category], correct: answerIsCorrect(item, responses[index] ?? "") }))).filter((item) => item.percentage < MASTERY_THRESHOLD), [exercises, responses]);
+  const wrongAnswers = useMemo(() => exercises.map((item, index) => ({ exercise: item, answer: responses[index] ?? "" })).filter((item) => item.answer && !answerIsCorrect(item.exercise.type, item.answer, item.exercise.correct, item.exercise.accepted, speakingEvaluations[String(item.exercise.id)]?.intent.status)), [exercises, responses, speakingEvaluations]);
+  const weakSkills = useMemo(() => getWeakSkills(exercises.map((item, index) => ({ tags: item.skills?.length ? item.skills : [item.category], correct: answerIsCorrect(item.type, responses[index] ?? "", item.correct, item.accepted, speakingEvaluations[String(item.id)]?.intent.status) }))).filter((item) => item.percentage < MASTERY_THRESHOLD), [exercises, responses, speakingEvaluations]);
   const primaryDisabled = saving || (!confirmed && exercise?.type === "choice_speaking" && !speakingStage ? !selected.trim() : !canConfirm);
 
   async function persist(action: "progress" | "complete", nextResponses: string[], nextScore: number, nextIndex: number, nextSpeakingAttempts = speakingAttemptIds) {
@@ -131,7 +130,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
       const practiceResponse = await fetch(`/api/practices/${lessonId}`);
       if (!practiceResponse.ok) throw new Error();
       const practiceData = await practiceResponse.json() as PracticePayload;
-      setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setSpeakingAttemptIds({}); setSpeakingStage(false); setReviewing(false); setNextStep(null); setError("");
+      setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setSpeakingAttemptIds({}); setSpeakingEvaluations({}); setSpeakingStage(false); setReviewing(false); setNextStep(null); setError("");
     } catch { setError("Não foi possível reiniciar. Tente novamente."); } finally { setSaving(false); }
   }
 
@@ -143,7 +142,8 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
       {isListening(exercise.type) ? <RecordedAudio exerciseId={exercise.id} available={Boolean(exercise.audioKey)} /> : null}
       {isChoice(exercise.type) ? <div className="answers">{exercise.options?.map((option, index) => { const optionSelected = selected === option; const revealCorrect = confirmed && option === exercise.correct; const revealWrong = confirmed && optionSelected && option !== exercise.correct; return <button key={option} disabled={confirmed || saving || speakingStage} className={`${optionSelected && !confirmed ? "selected" : ""} ${revealCorrect ? "correct" : ""} ${revealWrong ? "wrong" : ""}`} onClick={() => choose(option)}><span>{String.fromCharCode(65 + index)}</span>{option}{confirmed && (revealCorrect || revealWrong) ? <b>{revealCorrect ? <MaterialIcon name="check" /> : <MaterialIcon name="close" />}</b> : null}</button>; })}</div> : null}
       {exercise.type === "choice_speaking" && speakingStage && !confirmed ? <div className="speaking-selected-answer"><small>AGORA FALE A ALTERNATIVA ESCOLHIDA</small><strong lang="en">“{selected}”</strong></div> : null}
-      {isSpeaking(exercise.type) && (exercise.type === "speaking" || speakingStage) && !confirmed ? <SpeakingRecorder key={`${exercise.id}-${exercise.type === "choice_speaking" ? selected : "speaking"}`} exerciseId={exercise.id} targetText={exercise.type === "choice_speaking" ? selected : exercise.correct} onConfirmed={({ attemptId, result }) => { setSpeakingAttemptIds(previous => ({ ...previous, [String(exercise.id)]: attemptId })); if (exercise.type === "speaking") setSelected(result.transcription); }} /> : null}
+      {isSpeaking(exercise.type) && (exercise.type === "speaking" || speakingStage) && !confirmed ? <SpeakingRecorder key={`${exercise.id}-${exercise.type === "choice_speaking" ? selected : "speaking"}`} exerciseId={exercise.id} targetText={exercise.type === "choice_speaking" ? selected : exercise.correct} onConfirmed={({ attemptId, result }) => { setSpeakingAttemptIds(previous => ({ ...previous, [String(exercise.id)]: attemptId })); setSpeakingEvaluations(previous => ({ ...previous, [String(exercise.id)]: result })); if (exercise.type === "speaking") setSelected(result.transcription); }} /> : null}
+      {isSpeaking(exercise.type) && confirmed && speakingEvaluations[String(exercise.id)] ? <SpeakingFeedback evaluation={speakingEvaluations[String(exercise.id)]} targetText={exercise.type === "choice_speaking" ? selected : exercise.correct} /> : null}
       {exercise.type === "fill" ? <div className="fill-answer"><span>Complete:</span><input aria-label="Complete a frase" lang="en" spellCheck={false} maxLength={1000} value={selected} disabled={confirmed || saving} onChange={(event) => setSelected(event.target.value)} placeholder="digite aqui" /></div> : null}
       {!isChoice(exercise.type) && exercise.type !== "fill" && !isSpeaking(exercise.type) ? <div className="writing-answer"><label htmlFor="practice-answer">{isListening(exercise.type) ? "O que você ouviu?" : exercise.type === "correction" ? "Reescreva a frase corrigida" : "Sua resposta em inglês"}</label><textarea id="practice-answer" lang="en" spellCheck={false} autoComplete="off" autoCapitalize="off" maxLength={1000} value={selected} disabled={confirmed || saving} onChange={(event) => setSelected(event.target.value)} placeholder={isListening(exercise.type) ? "Digite o que você ouviu…" : "Escreva sua resposta…"} /><small>Pense na intenção da frase, não traduza palavra por palavra.</small></div> : null}
       {confirmed ? <div role="status" className={isCorrect ? "feedback success" : assessment?.status === "almost" ? "feedback almost" : "feedback error"}><strong>{exercise.type === "choice_speaking" ? `Compreensão: ${isCorrect ? "resposta correta" : "resposta incorreta"}` : isCorrect ? "Resposta correta!" : assessment?.status === "almost" ? "Quase! Vamos ajustar alguns detalhes." : "Vamos revisar juntos."}</strong><p>{exercise.explanation}</p>{!isCorrect && !isSpeaking(exercise.type) ? <AnswerComparison answer={selected} correct={exercise.correct} accepted={exercise.accepted} /> : null}</div> : null}{error ? <p className="practice-save-error">{error}</p> : null}</div><div className="modal-footer"><span>{exercise.type === "choice_speaking" && speakingStage && !hasSpeaking ? "Confirme sua gravação para continuar" : confirmed && isCorrect ? "Escute, pratique e aplique na sua próxima conversa." : "A resposta só será revelada após confirmar"}</span><button disabled={primaryDisabled} onClick={primaryAction}>{saving ? "Salvando…" : confirmed ? current === exercises.length - 1 ? "Ver resultado" : "Próxima" : exercise.type === "choice_speaking" && !speakingStage ? "Continuar para Speaking" : "Confirmar resposta"}<MaterialIcon name="arrow_forward" /></button></div></>}

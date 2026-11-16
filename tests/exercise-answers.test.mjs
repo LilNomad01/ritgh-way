@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../app/lib/exercise-answers.ts", import.meta.url), "utf8");
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { assessAnswer, exerciseTypes, isChoice, isSpeaking, isListening } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+const { assessAnswer, answerIsCorrect, exerciseTypes, isChoice, isSpeaking, isListening } = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
 
 test("audio multiple choice requires both audio playback and alternatives", () => {
   assert.equal(isListening("choice_listening"), true);
@@ -58,6 +58,11 @@ test("speaking formats are explicit without changing legacy choice exercises", (
   assert.equal(isSpeaking("choice"), false);
   assert.equal(isChoice("choice_speaking"), true);
   assert.equal(isChoice("choice"), true);
+});
+test("speaking correctness follows AI intent while objective speaking follows the selected option", () => {
+  assert.equal(answerIsCorrect("speaking", "A natural synonym", "Exact reference", [], "correct"), true);
+  assert.equal(answerIsCorrect("speaking", "Exact reference", "Exact reference", [], "review"), false);
+  assert.equal(answerIsCorrect("choice_speaking", "Right choice", "Right choice", [], "review"), true);
 });
 test("teacher-approved semantic variants remain valid for speaking transcription", () => {
   const result = assessAnswer("Could I get a coffee, please?", "Could I have a coffee, please?", ["Could I get a coffee, please?"]);

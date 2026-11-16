@@ -1,7 +1,7 @@
 import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { requireAuth } from "../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
-import { parsePracticePlan, parseStringList, type PracticeExerciseSource } from "../../../lib/practice-rotation";
+import { parsePracticePlan, parseStringList, refreshPracticePlan, type PracticeExerciseSource } from "../../../lib/practice-rotation";
 
 export const dynamic = "force-dynamic";
 
@@ -50,9 +50,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const sessionRow = assertSupabase(sessionResult) as { currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string } | null;
   if (!typedExercises.length) return Response.json({ error: "Esta aula ainda não tem exercícios publicados." }, { status: 404 });
   const storedPlan = parsePracticePlan(sessionRow?.exercisePlanJson);
-  const exercises = storedPlan.length ? storedPlan : typedExercises.map((exercise) => ({ ...exercise, options: parseStringList(exercise.optionsJson), accepted: parseStringList(exercise.acceptedJson), skills: parseStringList(exercise.skillsJson), variantKey: -1 }));
+  const answers = parseList(sessionRow?.answersJson);
+  const exercises = sessionRow?.status === "active" && storedPlan.length
+    ? refreshPracticePlan(storedPlan, typedExercises, answers.length)
+    : typedExercises.map((exercise) => ({ ...exercise, options: parseStringList(exercise.optionsJson), accepted: parseStringList(exercise.acceptedJson), skills: parseStringList(exercise.skillsJson), variantKey: -1 }));
   const last = typedAttempts[0];
   const skills = Array.from(new Set(exercises.flatMap((exercise) => exercise.skills ?? [])));
-  const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers: parseList(sessionRow.answersJson), speakingAttemptIds: parseSpeakingAttempts(sessionRow.speakingAttemptIdsJson), score: sessionRow.score, total: sessionRow.total, status: sessionRow.status } : undefined;
+  const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers, speakingAttemptIds: parseSpeakingAttempts(sessionRow.speakingAttemptIdsJson), score: sessionRow.score, total: sessionRow.status === "active" ? exercises.length : sessionRow.total, status: sessionRow.status } : undefined;
   return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, attemptsCount: typedAttempts.length, bestScore: typedAttempts.length ? Math.max(...typedAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session }, { headers: { "cache-control": "private, no-store" } });
 }
