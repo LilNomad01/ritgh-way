@@ -1,14 +1,14 @@
 import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../lib/auth";
 import { computeAcademicState } from "../../lib/academic";
-import { evaluateSpeaking, transcribeSpeech } from "../../lib/speech";
+import { evaluateSpeaking, speakingTarget, transcribeSpeech } from "../../lib/speech";
+import { parsePracticePlan } from "../../lib/practice-rotation";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 const MAX_SIZE = 6 * 1024 * 1024;
 const MAX_DURATION_SECONDS = 60;
 const TYPES = new Set(["audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/wav", "audio/x-wav", "audio/aac"]);
-
-function parseList(value?: string | null) { try { const parsed: unknown = JSON.parse(value ?? "[]"); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; } }
 
 export async function POST(request: Request) {
   if (!assertSameOrigin(request)) return Response.json({ error: "Origem não autorizada." }, { status: 403 });
@@ -35,16 +35,14 @@ export async function POST(request: Request) {
     if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Esta prática ainda não está liberada." }, { status: 403 });
     const session = assertSupabase(await db.from("practice_sessions").select("id,planJson:exercise_plan_json").eq("user_id", auth.sub).eq("lesson_id", exercise.lessonId).eq("status", "active").maybeSingle()) as { id: number; planJson: string } | null;
     if (!session) return Response.json({ error: "Inicie a prática antes de gravar." }, { status: 409 });
-    const plan = JSON.parse(session.planJson || "[]") as { id?: number }[];
-    if (!plan.some(item => item.id === exercise.id)) return Response.json({ error: "O exercício não pertence a esta tentativa." }, { status: 403 });
+    const question = parsePracticePlan(session.planJson).find(item => item.id === exercise.id);
+    if (!question || !["speaking", "choice_speaking"].includes(question.type)) return Response.json({ error: "O exercício não pertence a esta tentativa." }, { status: 403 });
     const recent = await db.from("speaking_attempts").select("id", { count: "exact", head: true }).eq("user_id", auth.sub).gte("created_at", new Date(Date.now() - 60_000).toISOString());
     if (recent.error) throw new Error(`Supabase: ${recent.error.message}`);
     if (Number(recent.count ?? 0) >= 10) return Response.json({ error: "Aguarde um minuto antes de enviar novas gravações." }, { status: 429 });
-    const options = parseList(exercise.optionsJson);
-    const target = exercise.type === "choice_speaking" && options.includes(requestedTarget) ? requestedTarget : exercise.correct;
-    const accepted = exercise.type === "choice_speaking" ? [] : parseList(exercise.acceptedJson);
+    const { target, accepted } = speakingTarget(question, requestedTarget);
     const transcribed = await transcribeSpeech(audio);
-    const result = await evaluateSpeaking(transcribed.text, target, accepted, exercise.prompt, transcribed.provider);
+    const result = await evaluateSpeaking(transcribed.text, target, accepted, question.prompt, transcribed.provider);
     const previous = await db.from("speaking_attempts").select("id", { count: "exact", head: true }).eq("user_id", auth.sub).eq("exercise_id", exercise.id);
     if (previous.error) throw new Error(`Supabase: ${previous.error.message}`);
     const attemptNumber = Number(previous.count ?? 0) + 1;
@@ -54,6 +52,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (code === "SPEECH_NOT_CONFIGURED") return Response.json({ code, error: "O serviço de transcrição ainda não foi configurado pelo administrador." }, { status: 503 });
+    if (code === "SPEECH_AUTH_FAILED") return Response.json({ code, error: "A credencial do serviço de fala está inválida. O administrador precisa atualizar a configuração." }, { status: 503 });
+    if (code === "SPEECH_LIMIT_REACHED") return Response.json({ code, error: "O serviço de fala atingiu o limite de uso ou saldo. Sua gravação foi mantida; tente novamente mais tarde." }, { status: 429 });
+    if (code === "INVALID_SPEAKING_TARGET") return Response.json({ code, error: "Escolha uma das alternativas desta tentativa antes de gravar." }, { status: 400 });
     if (code === "NO_SPEECH") return Response.json({ code, error: "Nenhuma fala foi detectada. Tente novamente em um lugar mais silencioso." }, { status: 422 });
     console.error("Speaking processing failed", error);
     return Response.json({ error: "Não foi possível transcrever sua fala agora. Tente novamente." }, { status: 503 });

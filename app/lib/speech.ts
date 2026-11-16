@@ -23,6 +23,14 @@ type SpeechSecrets = {
 
 function secrets() { return env as unknown as SpeechSecrets; }
 
+export function speakingTarget(question: { type: string; options: string[]; correct: string; accepted: string[] }, selected: string) {
+  if (question.type === "choice_speaking") {
+    if (!question.options.includes(selected)) throw new Error("INVALID_SPEAKING_TARGET");
+    return { target: selected, accepted: [] as string[] };
+  }
+  return { target: question.correct, accepted: question.accepted };
+}
+
 function statusFor(score: number): SpeakingStatus {
   return score >= 85 ? "correct" : score >= 60 ? "attention" : "review";
 }
@@ -34,7 +42,7 @@ function fallbackEvaluation(transcription: string, reference: string, accepted: 
   const used = expected.filter(word => actual.has(word));
   const difficulties = expected.filter(word => !actual.has(word));
   const score = Math.round(100 * used.length / Math.max(expected.length, 1));
-  const intentScore = assessment.status === "correct" ? 100 : assessment.status === "almost" ? Math.max(65, score) : score;
+  const intentScore = assessment.status === "correct" ? 100 : assessment.status === "almost" ? Math.min(84, Math.max(65, score)) : Math.min(59, score);
   const intentStatus = statusFor(intentScore);
   return {
     transcription,
@@ -44,7 +52,7 @@ function fallbackEvaluation(transcription: string, reference: string, accepted: 
     naturalness: { available: false, score: null, status: "attention", feedback: "A naturalidade não ficou disponível nesta tentativa." },
     pronunciation: { available: false, score: null, status: "attention", feedback: "A transcrição não mede pronúncia. Esta métrica não foi inventada." },
     fluency: { available: false, score: null, status: "attention", feedback: "Ainda não há dados confiáveis para medir fluidez." },
-    summary: intentStatus === "correct" ? "Muito bem! Sua fala transmitiu a mensagem." : "Bom trabalho. Veja a dica e grave novamente se quiser melhorar.",
+    summary: "Análise limitada: comparação com as respostas cadastradas. A avaliação semântica por IA não ficou disponível.",
     provider,
   };
 }
@@ -57,8 +65,11 @@ export async function transcribeSpeech(file: File) {
   form.set("model", secrets().SPEECH_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe");
   form.set("language", "en");
   form.set("response_format", "json");
-  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body: form });
-  if (!response.ok) { console.error("Speech transcription failed", response.status); throw new Error("TRANSCRIPTION_FAILED"); }
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${apiKey}` }, body: form, signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) {
+    console.error("Speech transcription failed", response.status);
+    throw new Error(response.status === 401 || response.status === 403 ? "SPEECH_AUTH_FAILED" : response.status === 429 ? "SPEECH_LIMIT_REACHED" : "TRANSCRIPTION_FAILED");
+  }
   const result = await response.json() as { text?: string };
   const text = result.text?.trim() ?? "";
   if (!text) throw new Error("NO_SPEECH");
@@ -72,6 +83,7 @@ export async function evaluateSpeaking(transcription: string, reference: string,
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(20_000),
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: secrets().SPEECH_EVALUATION_MODEL || "gpt-4o-mini",

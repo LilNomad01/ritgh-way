@@ -2,6 +2,7 @@ import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { requireAuth } from "../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { parsePracticePlan, parseStringList, refreshPracticePlan, type PracticeExerciseSource } from "../../../lib/practice-rotation";
+import type { SpeakingEvaluation } from "../../../lib/speech";
 
 export const dynamic = "force-dynamic";
 
@@ -57,5 +58,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const last = typedAttempts[0];
   const skills = Array.from(new Set(exercises.flatMap((exercise) => exercise.skills ?? [])));
   const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers, speakingAttemptIds: parseSpeakingAttempts(sessionRow.speakingAttemptIdsJson), score: sessionRow.score, total: sessionRow.status === "active" ? exercises.length : sessionRow.total, status: sessionRow.status } : undefined;
-  return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, attemptsCount: typedAttempts.length, bestScore: typedAttempts.length ? Math.max(...typedAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session }, { headers: { "cache-control": "private, no-store" } });
+  const speakingEvaluations: Record<string, SpeakingEvaluation> = {};
+  const attemptIds = Object.values(session?.speakingAttemptIds ?? {}).filter(id => Number.isSafeInteger(id) && id > 0);
+  if (attemptIds.length) {
+    const rows = assertSupabase(await db.from("speaking_attempts").select("id,exercise_id,result_json").eq("user_id", auth.sub).eq("lesson_id", lessonId).in("id", attemptIds)) ?? [];
+    for (const row of rows) {
+      try { speakingEvaluations[String(row.exercise_id)] = JSON.parse(row.result_json); } catch { /* Ignore unreadable historical feedback. */ }
+    }
+  }
+  return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, attemptsCount: typedAttempts.length, bestScore: typedAttempts.length ? Math.max(...typedAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session: session ? { ...session, speakingEvaluations } : undefined }, { headers: { "cache-control": "private, no-store" } });
 }

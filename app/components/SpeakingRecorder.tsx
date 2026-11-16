@@ -13,7 +13,7 @@ function supportedMime() {
   return ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"].find(type => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 
-export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exerciseId: number; targetText: string; onConfirmed: (response: SpeakingResponse) => void }) {
+export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset }: { exerciseId: number; targetText: string; onConfirmed: (response: SpeakingResponse) => void; onReset: () => void }) {
   const [state, setState] = useState<RecorderState>("ready");
   const [seconds, setSeconds] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -24,15 +24,29 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exer
   const stream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const startedAt = useRef(0);
+  const mounted = useRef(true);
 
   useEffect(() => {
     if (state !== "recording") return;
-    const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - startedAt.current) / 1000)), 250);
+    const timer = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt.current) / 1000);
+      setSeconds(Math.min(60, elapsed));
+      if (elapsed >= 60 && recorder.current?.state === "recording") recorder.current.stop();
+    }, 250);
     return () => window.clearInterval(timer);
   }, [state]);
-  useEffect(() => () => { stream.current?.getTracks().forEach(track => track.stop()); if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
+  useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (recorder.current) { recorder.current.onstop = null; if (recorder.current.state !== "inactive") recorder.current.stop(); }
+      stream.current?.getTracks().forEach(track => track.stop());
+    };
+  }, []);
 
   function reset() {
+    onReset();
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(""); setBlob(null); setResponse(null); setSeconds(0); setError(""); setState("ready");
   }
@@ -42,20 +56,22 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exer
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { setError("Este navegador não oferece gravação compatível. Atualize o navegador ou use Chrome/Safari recente."); return; }
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+      if (!mounted.current) { media.getTracks().forEach(track => track.stop()); return; }
       stream.current = media; chunks.current = [];
       const mimeType = supportedMime();
       const instance = new MediaRecorder(media, mimeType ? { mimeType } : undefined);
       recorder.current = instance;
       instance.ondataavailable = event => { if (event.data.size) chunks.current.push(event.data); };
       instance.onstop = () => {
-        const elapsed = Math.max(1, Math.round((Date.now() - startedAt.current) / 1000));
+        const elapsed = (Date.now() - startedAt.current) / 1000;
         const recorded = new Blob(chunks.current, { type: instance.mimeType || mimeType || "audio/webm" });
         media.getTracks().forEach(track => track.stop()); stream.current = null;
-        if (recorded.size < 800 || elapsed < 1) { setError("A gravação ficou muito curta. Fale a frase completa e tente novamente."); setState("ready"); return; }
-        setSeconds(elapsed); setBlob(recorded); setAudioUrl(URL.createObjectURL(recorded)); setState("review");
+        if (recorded.size < 800 || elapsed < 0.7) { setError("A gravação ficou muito curta. Fale a frase completa e tente novamente."); setState("ready"); return; }
+        setSeconds(Math.min(60, elapsed)); setBlob(recorded); setAudioUrl(URL.createObjectURL(recorded)); setState("review");
       };
       startedAt.current = Date.now(); setSeconds(0); instance.start(250); setState("recording");
     } catch (cause) {
+      stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
       const denied = cause instanceof DOMException && ["NotAllowedError", "PermissionDeniedError"].includes(cause.name);
       setError(denied ? "O acesso ao microfone foi negado. Libere o microfone nas configurações do navegador e tente novamente." : "Não foi possível ativar o microfone. Verifique se outro aplicativo está usando a gravação.");
     }
@@ -73,12 +89,14 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed }: { exer
       const form = new FormData();
       form.set("audio", new File([blob], `speaking.${extension}`, { type: blob.type }));
       form.set("exerciseId", String(exerciseId)); form.set("targetText", targetText); form.set("durationSeconds", String(Math.max(1, seconds)));
-      const request = await fetch("/api/speaking", { method: "POST", body: form });
+      const request = await fetch("/api/speaking", { method: "POST", body: form, signal: AbortSignal.timeout(55_000) });
       const data = await request.json() as SpeakingResponse & { error?: string };
       if (!request.ok) throw new Error(data.error || "Falha ao processar a gravação.");
+      if (!mounted.current) return;
       setResponse(data); setState("result"); onConfirmed(data);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "A conexão falhou. Sua gravação não foi confirmada; tente enviar novamente.");
+      if (!mounted.current) return;
+      setError(cause instanceof DOMException && cause.name === "TimeoutError" ? "A análise demorou demais. Sua gravação foi mantida; tente enviar novamente." : cause instanceof Error ? cause.message : "A conexão falhou. Sua gravação não foi confirmada; tente enviar novamente.");
       setState("review");
     }
   }
