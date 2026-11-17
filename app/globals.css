@@ -1063,6 +1063,10 @@ button, a { touch-action: manipulation; -webkit-tap-highlight-color: transparent
 .achievements-page > .dashboard-home { max-width: none; padding: 0; }
 .achievements-intro > div { min-width: 0; }
 .achievements-intro .eyebrow { display: block; }
+@media (max-width: 580px) {
+  .admin-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; margin-inline: 0; }
+  .admin-tabs button { min-width: 0; white-space: normal; }
+}
 .admin-header > div, .admin-security-banner > div, .course-admin-head > div { min-width: 0; }
 .admin-security-banner { border-radius: 16px; }
 .admin-security-banner > span { flex-shrink: 0; }

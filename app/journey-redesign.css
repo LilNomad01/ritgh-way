@@ -17,10 +17,10 @@
 .rwj button:disabled { cursor: not-allowed; }
 .rwj button:focus-visible { outline: 3px solid #5789dc; outline-offset: 3px; }
 .rwj .material-symbols-rounded { flex: 0 0 auto; line-height: 1; }
-.rwj-kicker { display: block; color: var(--rwj-red); font-size: 11px; font-weight: 750; letter-spacing: 1.2px; }
+.rwj-kicker { display: block; color: var(--accent-text); font-size: 11px; font-weight: 750; letter-spacing: 1.2px; }
 .rwj-heading { display: grid; gap: 22px; margin-bottom: 20px; }
 .rwj-heading h1 { margin: 7px 0; font-size: clamp(26px, 3vw, 34px); line-height: 1.2; letter-spacing: -1px; }
-.rwj-heading-dot { color: var(--rwj-red); }
+.rwj-heading-dot { color: var(--accent-text); }
 .rwj-heading p { margin: 0; color: var(--rwj-muted); font-size: 14px; line-height: 1.6; }
 .rwj-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .rwj-summary > div { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 4px 10px; padding: 15px; border: 1px solid var(--rwj-line); border-radius: 12px; background: var(--rwj-surface); }
