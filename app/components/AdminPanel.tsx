@@ -8,6 +8,7 @@ import { ExerciseEditor } from "./ExerciseEditor";
 import { MASTERY_THRESHOLD } from "../lib/learning-progress";
 import { passwordPolicyError } from "../lib/password-policy";
 import { isChoice, isListening } from "../lib/exercise-answers";
+import { authenticatedFetch as securedFetch } from "../lib/client-data";
 
 type Student = { id: number; fullName: string; email: string; level: string; placementScore: number; status: string; createdAt: string; hasAccount: number; mustChangePassword: number; lastLoginAt?: string };
 type Artwork = { imageKey?: string; imageMobileKey?: string; imageFit?: "cover" | "contain" | "fill"; imageZoom?: number; imageOverlay?: number; imagePositionX?: number; imagePositionY?: number };
@@ -77,15 +78,6 @@ function moduleLessons(data: Data, moduleId: number) {
 
 function statusClass(status: string) {
   return status === "Publicado" ? "status-live" : "status-draft";
-}
-
-async function securedFetch(input: RequestInfo | URL, init?: RequestInit) {
-  let response = await fetch(input, init);
-  if (response.status === 401) {
-    const refreshed = await fetch("/api/auth/refresh", { method: "POST" });
-    if (refreshed.ok) response = await fetch(input, init);
-  }
-  return response;
 }
 
 function ArtworkPreview({ item, className = "", icon = "school", device }: { item: Artwork; className?: string; icon?: string; device?: "desktop" | "mobile" }) {

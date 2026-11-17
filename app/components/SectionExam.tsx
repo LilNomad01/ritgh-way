@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnswerComparison } from "./AnswerComparison";
 import { MaterialIcon } from "./MaterialIcon";
 import { skillLabel, type LearningStep, type SkillResult } from "../lib/learning-progress";
-import { clearLearningClientCache } from "../lib/client-data";
+import { authenticatedFetch, clearLearningClientCache } from "../lib/client-data";
 
 type ExamQuestion = { id: number; type: string; category: string; prompt: string; options: string[] };
 type ExamPayload = { exam: { id: number; sectionId: number; title: string; description: string; passScore: number; sectionTitle: string; moduleTitle: string; level: string; questionCount: number; firstLessonId?: number }; questions: ExamQuestion[]; state: { examUnlocked: boolean; examPassed: boolean; completedLessons: number; lessonCount: number; bestExamPercentage?: number; examAttempts: number; weakSkills: SkillResult[] } };
@@ -24,7 +24,7 @@ export function SectionExam({ sectionId, session, onBack, onStart, onNextSection
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/exams/${sectionId}`).then(async (response) => {
+    authenticatedFetch(`/api/exams/${sectionId}`).then(async (response) => {
       const data = await response.json() as ExamPayload & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar a prova.");
       return data;
@@ -40,7 +40,7 @@ export function SectionExam({ sectionId, session, onBack, onStart, onNextSection
     setSubmitting(true);
     setError("");
     try {
-      const response = await fetch(`/api/exams/${sectionId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answers }) });
+      const response = await authenticatedFetch(`/api/exams/${sectionId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ answers }) });
       const data = await response.json() as { result?: Result; nextStep?: LearningStep; error?: string };
       if (!response.ok || !data.result) throw new Error(data.error ?? "Não foi possível salvar o resultado.");
       clearLearningClientCache();
@@ -55,7 +55,7 @@ export function SectionExam({ sectionId, session, onBack, onStart, onNextSection
 
   async function retryExam() {
     try {
-      const response = await fetch(`/api/exams/${sectionId}`, { cache: "no-store" });
+      const response = await authenticatedFetch(`/api/exams/${sectionId}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Não foi possível preparar outra tentativa.");
       setPayload(await response.json() as ExamPayload);
       setResult(null); setCurrent(0); setAnswers({}); setError("");

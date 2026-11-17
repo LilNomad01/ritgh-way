@@ -24,7 +24,7 @@ const dailyGoals = [
   { minutes: 20, label: "Intenso", note: "Para quem quer acelerar" },
 ];
 
-export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (profile: Profile) => void; initialStep?: Step }) {
+export function Onboarding({ onComplete, initialStep = "home", sessionExpired = false }: { onComplete: (profile: Profile) => void; initialStep?: Step; sessionExpired?: boolean }) {
   const [step, setStep] = useState<Step>(initialStep);
   const [form, setForm] = useState({ fullName: "", email: "" });
   const [password, setPassword] = useState("");
@@ -37,7 +37,7 @@ export function Onboarding({ onComplete, initialStep = "home" }: { onComplete: (
   const [saving, setSaving] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
+  const [loginError, setLoginError] = useState(sessionExpired ? "Sua sessão expirou. Entre novamente para continuar." : "");
   const [signupError, setSignupError] = useState("");
 
   const { score, level: testedLevel } = placementResult(answers);

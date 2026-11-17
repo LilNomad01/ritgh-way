@@ -9,7 +9,7 @@ import { SpeakingFeedback } from "./SpeakingFeedback";
 import { AnswerComparison } from "./AnswerComparison";
 import { answerIsCorrect, assessAnswer, isChoice, isListening, isSpeaking, type exerciseTypes } from "../lib/exercise-answers";
 import { getWeakSkills, MASTERY_THRESHOLD, skillLabel, type LearningStep } from "../lib/learning-progress";
-import { clearLearningClientCache } from "../lib/client-data";
+import { authenticatedFetch, clearLearningClientCache } from "../lib/client-data";
 import type { SpeakingEvaluation } from "../lib/speech";
 
 type Exercise = {
@@ -51,8 +51,8 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) }).then((response) => response.ok ? response.json() as Promise<{ session?: PracticePayload["session"] }> : Promise.reject()).then(async (sessionData) => {
-      const practiceResponse = await fetch(`/api/practices/${lessonId}`);
+    authenticatedFetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) }).then((response) => response.ok ? response.json() as Promise<{ session?: PracticePayload["session"] }> : Promise.reject()).then(async (sessionData) => {
+      const practiceResponse = await authenticatedFetch(`/api/practices/${lessonId}`);
       if (!practiceResponse.ok) throw new Error();
       const practiceData = await practiceResponse.json() as PracticePayload;
       if (cancelled) return;
@@ -82,7 +82,7 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   async function persist(action: "progress" | "complete", nextResponses: string[], nextScore: number, nextIndex: number, nextSpeakingAttempts = speakingAttemptIds) {
     setSaving(true); setError("");
     try {
-    const response = await fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, answers: nextResponses, speakingAttemptIds: nextSpeakingAttempts, score: nextScore, currentIndex: nextIndex, total: exercises.length }) });
+    const response = await authenticatedFetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, answers: nextResponses, speakingAttemptIds: nextSpeakingAttempts, score: nextScore, currentIndex: nextIndex, total: exercises.length }) });
     if (!response.ok) throw new Error();
     const data = await response.json() as { nextStep?: LearningStep; session?: { score?: number } };
     if (action === "complete") {
@@ -126,9 +126,9 @@ export function ExercisePlayer({ lessonId, onClose }: { lessonId: number; onClos
   async function restart() {
     setSaving(true); setError("");
     try {
-      const response = await fetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start", reset: true }) });
+      const response = await authenticatedFetch(`/api/practices/${lessonId}/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start", reset: true }) });
       if (!response.ok) throw new Error();
-      const practiceResponse = await fetch(`/api/practices/${lessonId}`);
+      const practiceResponse = await authenticatedFetch(`/api/practices/${lessonId}`);
       if (!practiceResponse.ok) throw new Error();
       const practiceData = await practiceResponse.json() as PracticePayload;
       setPayload(practiceData); setCurrent(0); setSelected(""); setConfirmed(false); setScore(0); setFinished(false); setResponses([]); setSpeakingAttemptIds({}); setSpeakingEvaluations({}); setSpeakingStage(false); setReviewing(false); setNextStep(null); setError("");

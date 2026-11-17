@@ -19,34 +19,73 @@ let dashboardRequest: Promise<unknown> | null = null;
 let sessionData: SessionData | null = null;
 let courseData: CourseData | null = null;
 let dashboardData: unknown = null;
+let authGeneration = 0;
+let refreshVersion = 0;
+let refreshRequest: Promise<void> | null = null;
+
+function assertCurrentSession(generation: number) {
+  if (generation !== authGeneration) throw new Error("Sessão alterada. Tente novamente.");
+}
+
+function expireSession(notify: boolean): never {
+  clearPrivateClientCache();
+  if (notify && typeof window !== "undefined") window.dispatchEvent(new Event("rightway:session-expired"));
+  throw new Error("Sua sessão expirou. Entre novamente para continuar.");
+}
+
+function refreshSession(generation: number, notify: boolean) {
+  if (!refreshRequest) {
+    refreshRequest = (async () => {
+      const response = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
+      assertCurrentSession(generation);
+      if (response.status === 401) expireSession(notify);
+      if (!response.ok) throw new Error("Não foi possível renovar sua sessão. Tente novamente.");
+      refreshVersion++;
+    })().finally(() => { if (generation === authGeneration) refreshRequest = null; });
+  }
+  return refreshRequest;
+}
+
+export async function authenticatedFetch(url: string, init?: RequestInit) {
+  const generation = authGeneration;
+  const version = refreshVersion;
+  const notify = url !== "/api/auth/session" || sessionData !== null;
+  const options = { ...init, credentials: "same-origin" as const };
+  let response = await fetch(url, options);
+  assertCurrentSession(generation);
+  if (response.status === 401) {
+    init?.signal?.throwIfAborted();
+    if (version === refreshVersion) await refreshSession(generation, notify);
+    assertCurrentSession(generation);
+    // Protected routes reject expired auth before any mutation; retry only once.
+    response = await fetch(url, options);
+    assertCurrentSession(generation);
+    if (response.status === 401) expireSession(notify);
+  }
+  return response;
+}
 
 async function readJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { cache: "no-store", credentials: "same-origin" });
+  const response = await authenticatedFetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json() as Promise<T>;
 }
 
-async function sessionProfile() {
-  const response = await fetch("/api/auth/session", { cache: "no-store", credentials: "same-origin" });
-  if (response.ok) return response.json() as Promise<SessionData>;
-  if (response.status !== 401) throw new Error(`Request failed: ${response.status}`);
-  const refresh = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
-  if (!refresh.ok) throw new Error("anonymous");
-  return readJson<SessionData>("/api/auth/session");
-}
-
 export function loadSessionProfile() {
-  if (!sessionRequest) sessionRequest = sessionProfile().then(data => (sessionData = data)).catch(error => { sessionRequest = null; throw error; });
+  const generation = authGeneration;
+  if (!sessionRequest) sessionRequest = readJson<SessionData>("/api/auth/session").then(data => { assertCurrentSession(generation); return sessionData = data; }).catch(error => { if (generation === authGeneration) sessionRequest = null; throw error; });
   return sessionRequest;
 }
 
 export function loadCourseData() {
-  if (!courseRequest) courseRequest = readJson<CourseData>("/api/content").then(data => (courseData = data)).catch(error => { courseRequest = null; throw error; });
+  const generation = authGeneration;
+  if (!courseRequest) courseRequest = readJson<CourseData>("/api/content").then(data => { assertCurrentSession(generation); return courseData = data; }).catch(error => { if (generation === authGeneration) courseRequest = null; throw error; });
   return courseRequest;
 }
 
 export function loadDashboardData<T = unknown>() {
-  if (!dashboardRequest) dashboardRequest = readJson<T>("/api/dashboard").then(data => (dashboardData = data)).catch(error => { dashboardRequest = null; throw error; });
+  const generation = authGeneration;
+  if (!dashboardRequest) dashboardRequest = readJson<T>("/api/dashboard").then(data => { assertCurrentSession(generation); return dashboardData = data; }).catch(error => { if (generation === authGeneration) dashboardRequest = null; throw error; });
   return dashboardRequest as Promise<T>;
 }
 
@@ -62,6 +101,8 @@ export function clearLearningClientCache() {
 }
 
 export function clearPrivateClientCache() {
+  authGeneration++;
+  refreshRequest = null;
   sessionRequest = null;
   sessionData = null;
   clearLearningClientCache();

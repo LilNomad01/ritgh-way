@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { passwordPolicyError } from "../lib/password-policy";
+import { authenticatedFetch } from "../lib/client-data";
 
 export function PasswordChange({ onClose, onChanged, required = false }: { onClose: () => void; onChanged: () => void; required?: boolean }) {
   const [currentPassword, setCurrentPassword] = useState("");
@@ -18,7 +19,7 @@ export function PasswordChange({ onClose, onChanged, required = false }: { onClo
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/change-password", {
+      const response = await authenticatedFetch("/api/auth/change-password", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ currentPassword, newPassword }),

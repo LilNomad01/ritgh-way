@@ -51,3 +51,163 @@ test('failed reads are evicted so retry can recover', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('expired access refreshes once for concurrent private reads and retries both', async () => {
+  const originalFetch = globalThis.fetch;
+  let authenticated = false;
+  let refreshes = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(init.credentials, 'same-origin');
+    if (url === '/api/auth/refresh') {
+      refreshes++;
+      await new Promise(resolve => setTimeout(resolve, 5));
+      authenticated = true;
+      return Response.json({ ok: true });
+    }
+    if (!authenticated) return Response.json({ error: 'expired' }, { status: 401 });
+    return Response.json(url === '/api/content' ? { modules: [] } : { completedLessons: 0 });
+  };
+  try {
+    const client = await loadClientData();
+    const [course, dashboard] = await Promise.all([client.loadCourseData(), client.loadDashboardData()]);
+    assert.deepEqual(course, { modules: [] });
+    assert.deepEqual(dashboard, { completedLessons: 0 });
+    assert.equal(refreshes, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('invalid refresh clears the cached profile and signals login without a retry loop', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const browser = new EventTarget();
+  let expired = 0;
+  browser.addEventListener('rightway:session-expired', () => expired++);
+  globalThis.window = browser;
+  let calls = 0;
+  globalThis.fetch = async url => {
+    calls++;
+    return url === '/api/auth/session'
+      ? Response.json({ profile: { fullName: 'Student', email: 'student@example.test' } })
+      : Response.json({ error: 'expired' }, { status: 401 });
+  };
+  try {
+    const client = await loadClientData();
+    await client.loadSessionProfile();
+    await assert.rejects(client.loadDashboardData(), /sessão expirou/i);
+    assert.equal(client.getCachedSessionProfile(), null);
+    assert.equal(client.getCachedDashboardData(), null);
+    assert.equal(expired, 1);
+    assert.equal(calls, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('a retried request cannot refresh forever and keeps the original request body', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, method: init.method, body: init.body });
+    return Response.json({}, { status: url === '/api/auth/refresh' ? 200 : 401 });
+  };
+  try {
+    const { authenticatedFetch } = await loadClientData();
+    assert.equal(typeof authenticatedFetch, 'function');
+    await assert.rejects(authenticatedFetch('/api/practices/1/session', { method: 'POST', body: '{"action":"progress"}' }), /sessão expirou/i);
+    assert.deepEqual(requests, [
+      { url: '/api/practices/1/session', method: 'POST', body: '{"action":"progress"}' },
+      { url: '/api/auth/refresh', method: 'POST', body: undefined },
+      { url: '/api/practices/1/session', method: 'POST', body: '{"action":"progress"}' },
+    ]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a temporary refresh failure permits retry without erasing the signed-in profile', async () => {
+  const originalFetch = globalThis.fetch;
+  let available = false;
+  globalThis.fetch = async url => {
+    if (url === '/api/auth/session') return Response.json({ profile: { fullName: 'Student' } });
+    if (url === '/api/auth/refresh') return Response.json({}, { status: available ? 200 : 503 });
+    return Response.json({ completedLessons: 0 }, { status: available ? 200 : 401 });
+  };
+  try {
+    const client = await loadClientData();
+    await client.loadSessionProfile();
+    await assert.rejects(client.loadDashboardData(), /renovar/i);
+    assert.equal(client.getCachedSessionProfile().profile.fullName, 'Student');
+    available = true;
+    assert.deepEqual(await client.loadDashboardData(), { completedLessons: 0 });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('an old in-flight response cannot restore private data after logout', async () => {
+  const originalFetch = globalThis.fetch;
+  let respond;
+  globalThis.fetch = () => new Promise(resolve => { respond = resolve; });
+  try {
+    const client = await loadClientData();
+    const pending = client.loadDashboardData();
+    client.clearPrivateClientCache();
+    respond(Response.json({ completedLessons: 9 }));
+    await assert.rejects(pending);
+    assert.equal(client.getCachedDashboardData(), null);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a new anonymous visitor is not reported as an expired signed-in session', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const browser = new EventTarget();
+  let expired = 0;
+  browser.addEventListener('rightway:session-expired', () => expired++);
+  globalThis.window = browser;
+  globalThis.fetch = async () => Response.json({}, { status: 401 });
+  try {
+    const client = await loadClientData();
+    await assert.rejects(client.loadSessionProfile());
+    assert.equal(expired, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test('a late 401 reuses the completed refresh instead of rotating credentials again', async () => {
+  const originalFetch = globalThis.fetch;
+  let authenticated = false;
+  let refreshes = 0;
+  let respondLate;
+  globalThis.fetch = async url => {
+    if (url === '/api/auth/refresh') {
+      authenticated = true;
+      refreshes++;
+      return Response.json({ ok: true });
+    }
+    if (!authenticated && url === '/api/content') return new Promise(resolve => { respondLate = resolve; });
+    if (!authenticated) return Response.json({}, { status: 401 });
+    return Response.json({ ready: true });
+  };
+  try {
+    const client = await loadClientData();
+    const late = client.loadCourseData();
+    await client.loadDashboardData();
+    respondLate(Response.json({}, { status: 401 }));
+    assert.deepEqual(await late, { ready: true });
+    assert.equal(refreshes, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('forbidden operations are not refreshed or replayed', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return Response.json({}, { status: 403 }); };
+  try {
+    const { authenticatedFetch } = await loadClientData();
+    const response = await authenticatedFetch('/api/admin', { method: 'DELETE' });
+    assert.equal(response.status, 403);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});

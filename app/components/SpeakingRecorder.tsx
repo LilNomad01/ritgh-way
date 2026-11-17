@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { MaterialIcon } from "./MaterialIcon";
 import type { SpeakingEvaluation } from "../lib/speech";
 import { SpeakingFeedback } from "./SpeakingFeedback";
+import { authenticatedFetch } from "../lib/client-data";
 
 type SpeakingResponse = { attemptId: number; attemptNumber: number; result: SpeakingEvaluation };
 type RecorderState = "ready" | "recording" | "review" | "processing" | "result";
@@ -89,7 +90,7 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
       const form = new FormData();
       form.set("audio", new File([blob], `speaking.${extension}`, { type: blob.type }));
       form.set("exerciseId", String(exerciseId)); form.set("targetText", targetText); form.set("durationSeconds", String(Math.max(1, seconds)));
-      const request = await fetch("/api/speaking", { method: "POST", body: form, signal: AbortSignal.timeout(55_000) });
+      const request = await authenticatedFetch("/api/speaking", { method: "POST", body: form, signal: AbortSignal.timeout(55_000) });
       const data = await request.json() as SpeakingResponse & { error?: string };
       if (!request.ok) throw new Error(data.error || "Falha ao processar a gravação.");
       if (!mounted.current) return;

@@ -40,8 +40,22 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   const [showOnboarding, setShowOnboarding] = useState(!cachedSession);
   const [profile, setProfile] = useState<Profile | null>(cachedSession?.profile ?? null);
   const [checkingSession, setCheckingSession] = useState(!cachedSession);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [passwordChangeOpen, setPasswordChangeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    function onSessionExpired() {
+      setProfile(null);
+      setSessionExpired(true);
+      setShowOnboarding(true);
+      setCheckingSession(false);
+      setPasswordChangeOpen(false);
+      setMobileMenuOpen(false);
+    }
+    window.addEventListener("rightway:session-expired", onSessionExpired);
+    return () => window.removeEventListener("rightway:session-expired", onSessionExpired);
+  }, []);
 
   useEffect(() => {
     loadSessionProfile().then((result) => {
@@ -65,6 +79,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
 
   function finishOnboarding(nextProfile: Profile) {
     clearPrivateClientCache();
+    setSessionExpired(false);
     setProfile(nextProfile);
     setShowOnboarding(false);
     setPasswordChangeOpen(Boolean(nextProfile.mustChangePassword));
@@ -80,7 +95,7 @@ export function RightWayApp({ adminEntry = false, initialView = "Início", lesso
   }
 
   if (checkingSession) return <div className="app-loading"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><strong>RIGHT WAY</strong><span /></div>;
-  if (showOnboarding || !profile) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry ? "login" : "home"} />;
+  if (showOnboarding || !profile) return <Onboarding onComplete={finishOnboarding} initialStep={adminEntry || sessionExpired ? "login" : "home"} sessionExpired={sessionExpired} />;
 
   const firstName = profile.fullName.split(" ")[0] || "Aluno";
   const initials = profile.fullName.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();

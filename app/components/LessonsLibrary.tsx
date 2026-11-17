@@ -7,7 +7,7 @@ import { StudentDashboard } from "./StudentDashboard";
 import { MaterialIcon } from "./MaterialIcon";
 import { AnswerComparison } from "./AnswerComparison";
 import { skillLabel, type LearningStep } from "../lib/learning-progress";
-import { clearLearningClientCache, getCachedCourseData, loadCourseData } from "../lib/client-data";
+import { authenticatedFetch, clearLearningClientCache, getCachedCourseData, loadCourseData } from "../lib/client-data";
 
 const emptyCourse: CourseData = { modules: [], sections: [], lessons: [], academic: { lessonStates: [], sectionStates: [], moduleStates: [] } };
 
@@ -66,7 +66,7 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/lessons/${lessonId}`).then(async (response) => { const data = await response.json() as LessonDetailPayload & { error?: string }; if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar a aula."); return data; }).then((data) => { if (!cancelled) setPayload(data); }).catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar a aula."); }).finally(() => { if (!cancelled) setLoading(false); });
+    authenticatedFetch(`/api/lessons/${lessonId}`).then(async (response) => { const data = await response.json() as LessonDetailPayload & { error?: string }; if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar a aula."); return data; }).then((data) => { if (!cancelled) setPayload(data); }).catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar a aula."); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [lessonId]);
 
@@ -74,7 +74,7 @@ function LessonPage({ lessonId, onBack, onPractice, onContinue }: { lessonId: nu
     const video = videoRef.current;
     if (!video || !Number.isFinite(video.duration)) return;
     try {
-    const response = await fetch(`/api/lessons/${lessonId}/video-progress`, { method: "POST", headers: { "content-type": "application/json" }, keepalive: true, body: JSON.stringify({ videoId: selectedVideo?.id, positionSeconds: Math.max(0, video.currentTime - (selectedVideo?.startSeconds ?? 0)), durationSeconds: Math.max(1, Math.min(selectedVideo?.endSeconds ?? video.duration, video.duration) - (selectedVideo?.startSeconds ?? 0)), ended }) });
+    const response = await authenticatedFetch(`/api/lessons/${lessonId}/video-progress`, { method: "POST", headers: { "content-type": "application/json" }, keepalive: true, body: JSON.stringify({ videoId: selectedVideo?.id, positionSeconds: Math.max(0, video.currentTime - (selectedVideo?.startSeconds ?? 0)), durationSeconds: Math.max(1, Math.min(selectedVideo?.endSeconds ?? video.duration, video.duration) - (selectedVideo?.startSeconds ?? 0)), ended }) });
     if (response.ok) {
       const data = await response.json() as { progress?: { positionSeconds: number; completed: boolean }; state?: LessonState; nextStep?: LearningStep | null };
       setSaveError("");

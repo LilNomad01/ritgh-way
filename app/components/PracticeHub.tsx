@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Artwork, CourseModule, CourseSection } from "../lib/course";
 import { MaterialIcon } from "./MaterialIcon";
+import { authenticatedFetch } from "../lib/client-data";
 
 export type PracticeSummary = Artwork & {
   id: number;
@@ -64,7 +65,7 @@ export function PracticeHub({ lessonId, onOpenDetail, onStartSession, onBackToHu
   useEffect(() => {
     let cancelled = false;
     const endpoint = lessonId ? `/api/practices/${lessonId}` : "/api/practices";
-    fetch(endpoint).then((response) => response.ok ? response.json() as Promise<PracticeData & { practice?: PracticeSummary }> : Promise.reject()).then((result) => {
+    authenticatedFetch(endpoint).then((response) => response.ok ? response.json() as Promise<PracticeData & { practice?: PracticeSummary }> : Promise.reject()).then((result) => {
       if (cancelled) return;
       if (lessonId) setDetail(result.practice ?? null);
       else setData(result);
