@@ -23,7 +23,7 @@
 .rwj-heading-dot { color: var(--rwj-red); }
 .rwj-heading p { margin: 0; color: var(--rwj-muted); font-size: 14px; line-height: 1.6; }
 .rwj-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.rwj-summary > div { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 4px 10px; padding: 15px; border: 1px solid var(--rwj-line); border-radius: 12px; background: var(--rwj-surface); }
+.rwj-summary > div { display: grid; grid-template-columns: 26px minmax(0, 1fr); align-items: center; gap: 4px 10px; padding: 15px; border: 1px solid var(--rwj-line); border-radius: 12px; background: var(--rwj-surface); }
 .rwj-summary .material-symbols-rounded { grid-row: 1 / 3; color: var(--rwj-blue); font-size: 23px; }
 .rwj-summary strong { font-size: 21px; line-height: 1.1; }
 .rwj-summary small { color: var(--rwj-muted); font-size: 12px; line-height: 1.4; }
@@ -129,6 +129,13 @@
 .dark .rwj-lesson:disabled .rwj-lesson-copy { color: #a7b3c8; }
 .dark .rwj-status-done { color: #9ce4c3; background: #173b30; }
 .dark .rwj-status-current { color: #ffafbd; background: #472538; }
+.rwj-heading, .rwj-content-head-title > div, .rwj-focus-head > div { min-width: 0; }
+.rwj .material-symbols-rounded { overflow-wrap: normal; }
+.dark :is(.rwj-status-locked, .rwj-status-pending, .rwj-level-locked .rwj-level-icon, .rwj-lesson-locked .rwj-lesson-icon, .rwj-lesson-pending .rwj-lesson-icon, .rwj-chapter-locked .rwj-chapter-number) { color: #bdcbe0; background: #26364f; }
+.dark :is(.rwj-lesson-done .rwj-lesson-icon, .rwj-chapter-completed .rwj-chapter-number, .rwj-level-completed .rwj-level-icon) { color: #9ce4c3; background: #173b30; }
+.dark .rwj-lesson-current .rwj-lesson-icon { color: #ffafbd; background: #472538; }
+.dark :is(.rwj-level-track, .rwj-progress) { background: #354767; }
+.dark .rwj-error button { color: #071b43; }
 @media (max-width: 760px) {
   .rwj { padding: 22px 16px 38px; }
   .rwj-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -142,8 +149,7 @@
   .rwj-primary { width: 100%; }
   .rwj-section-heading { display: block; }
   .rwj-section-heading p { margin-top: 7px; }
-  .rwj-levels { grid-auto-flow: column; grid-auto-columns: minmax(205px, 70%); grid-template-columns: none; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: thin; padding: 4px 4px 12px; }
-  .rwj-level { scroll-snap-align: start; }
+  .rwj-levels { grid-template-columns: minmax(0, 1fr); padding: 4px; }
   .rwj-content { padding: 17px 12px; }
   .rwj-content-head { flex-wrap: wrap; gap: 12px; }
   .rwj-content-progress { flex-direction: row; align-items: baseline; gap: 10px; }

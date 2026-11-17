@@ -28,7 +28,7 @@ const navItems = [
 ];
 
 
-function Achievements() { return <div className="page-view"><section className="section-block"><span className="eyebrow">SUAS CONQUISTAS</span><h1>Seu progresso, sem números inventados.</h1><p>As medalhas ainda estão em preparação. Acompanhe abaixo as atividades realmente concluídas.</p></section><StudentDashboard /></div>; }
+function Achievements() { return <div className="page-view achievements-page"><section className="achievements-intro"><span className="achievements-icon"><MaterialIcon name="workspace_premium" filled /></span><div><span className="eyebrow">SUAS CONQUISTAS</span><h1>Seu progresso, etapa por etapa.</h1><p>Acompanhe suas atividades concluídas e resultados reais. Medalhas serão exibidas quando estiverem disponíveis.</p></div></section><StudentDashboard /></div>; }
 
 type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
 
