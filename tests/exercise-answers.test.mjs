@@ -72,7 +72,8 @@ test("teacher-approved semantic variants remain valid for speaking transcription
 
 test("speaking feedback compares recognized and expected words", () => {
   const componentSource = readFileSync(new URL("../app/components/SpeakingFeedback.tsx", import.meta.url), "utf8");
-  assert.match(componentSource, /<AnswerComparison answer=\{evaluation\.transcription\} correct=\{targetText\}/);
+  assert.match(componentSource, /<AnswerComparison answer=\{result\.transcription\} correct=\{targetText\}/);
+  assert.match(componentSource, /normalizeSpeakingEvaluation\(evaluation, targetText\)/);
   const expected = assessAnswer("nice to meet iu", "nice to meet you");
   const recognized = assessAnswer(expected.expected, "nice to meet iu");
   assert.deepEqual(expected.words.filter(word => word.matched).map(word => word.text), ["nice", "to", "meet"]);

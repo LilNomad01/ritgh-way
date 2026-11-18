@@ -1,19 +1,28 @@
-import type { SpeakingEvaluation, SpeakingStatus } from "../lib/speech";
+import { normalizeSpeakingEvaluation, type SpeakingEvaluation, type SpeakingStatus } from "../lib/speech";
 import { AnswerComparison } from "./AnswerComparison";
+import { SpeakingReference } from "./SpeakingReference";
+import styles from "./SpeakingFeedback.module.css";
 
 function metricLabel(status: SpeakingStatus) {
-  return status === "correct" ? "Muito bom" : status === "attention" ? "Pode melhorar" : "Precisa revisar";
+  return status === "correct" ? "Muito bom" : status === "attention" ? "Pode melhorar" : "Precisa praticar";
 }
 
-export function SpeakingFeedback({ evaluation, targetText }: { evaluation: SpeakingEvaluation; targetText: string }) {
-  return <div className="speaking-result">
-    <h3>{evaluation.summary}</h3>
-    <section className="speaking-comparison"><strong>Forma reconhecida e forma esperada</strong><p>Compare as palavras detectadas. Isto não é uma nota acústica de pronúncia.</p><AnswerComparison answer={evaluation.transcription} correct={targetText} expectedLabel="Forma esperada" answerLabel="Forma reconhecida" /></section>
-    <div className="speaking-metrics">
-      <div data-status={evaluation.intent.status}><small>INTENÇÃO</small><strong>{metricLabel(evaluation.intent.status)}</strong><p>{evaluation.intent.feedback}</p></div>
-      <div data-status={evaluation.vocabulary.status}><small>VOCABULÁRIO</small><strong>{metricLabel(evaluation.vocabulary.status)}</strong><p>{evaluation.vocabulary.feedback}</p></div>
-      <div data-status={evaluation.grammar.status}><small>GRAMÁTICA</small><strong>{evaluation.grammar.available ? metricLabel(evaluation.grammar.status) : "Sem dado confiável"}</strong><p>{evaluation.grammar.feedback}</p></div>
-      <div data-status="attention"><small>PRONÚNCIA</small><strong>Não avaliada</strong><p>{evaluation.pronunciation.feedback}</p></div>
-    </div>
+const recognizedWords = (text: string) => text.toLocaleLowerCase("en-US").replace(/[.,!?;:]/g, "").replace(/\s+/g, " ").trim();
+
+export function SpeakingFeedback({ evaluation, targetText, exerciseId, studentAudioUrl }: { evaluation: SpeakingEvaluation; targetText: string; exerciseId?: number; studentAudioUrl?: string }) {
+  const result = normalizeSpeakingEvaluation(evaluation, targetText);
+  const pronunciation = result.pronunciation;
+  const metrics = [["Clareza", result.clarity], ["Fluência", result.fluency], ["Vocabulário", result.vocabulary], ["Gramática", result.grammar]] as const;
+  return <div className={styles.result}>
+    <section className={styles.primary} data-status={pronunciation.available ? pronunciation.status : "unavailable"}>
+      <small>PRONÚNCIA · ORIENTAÇÃO POR IA</small><h3>{pronunciation.available ? metricLabel(pronunciation.status) : "Não foi possível avaliar"}</h3>
+      <p>{pronunciation.feedback}</p>
+      <small>{pronunciation.available ? "Análise qualitativa da gravação. Não é medição fonética calibrada." : "Nenhuma nota foi atribuída. Você pode praticar novamente."}</small>
+    </section>
+    <section className={styles.comparison}><AnswerComparison answer={result.transcription} correct={targetText} expectedLabel="Referência esperada" answerLabel="Transcrição reconhecida" /><small>A transcrição pode errar e não comprova como cada som foi produzido.</small>{result.acousticHeard && recognizedWords(result.acousticHeard) !== recognizedWords(result.transcription) && <p>O analisador de áudio ouviu “{result.acousticHeard}”. Os reconhecimentos divergem; compare sua gravação e tente novamente.</p>}</section>
+    <div className={styles.content}><strong>Conteúdo: {metricLabel(result.intent.status)}</strong><p>{result.intent.feedback}</p></div>
+    <dl className={styles.metrics}>{metrics.map(([name, metric]) => <div key={name} data-status={metric?.available ? metric.status : "unavailable"}><dt>{name}</dt><dd>{metric?.available ? metricLabel(metric.status) : "Não avaliado"}<p>{metric?.feedback}</p></dd></div>)}</dl>
+    {result.practiceTip && <aside className={styles.tip}><strong>Na próxima tentativa</strong><p>{result.practiceTip}</p></aside>}
+    {exerciseId && <SpeakingReference exerciseId={exerciseId} targetText={targetText} studentAudioUrl={studentAudioUrl} />}
   </div>;
 }

@@ -1,0 +1,31 @@
+.result { display: grid; gap: 1rem; min-width: 0; color: var(--ink); }
+.result h3, .result p, .result dl, .result dd { margin: 0; }
+.primary { padding: 1.25rem; border: 1px solid var(--line); border-radius: 1.1rem; background: var(--surface); display: grid; gap: .65rem; }
+.primary h3 { font-size: clamp(1.4rem, 3vw, 1.85rem); line-height: 1.2; }
+.result small { font-size: .8rem; line-height: 1.5; color: var(--muted); }
+.primary > small:first-child { font-weight: 800; letter-spacing: .08em; }
+.primary[data-status="correct"] h3 { color: #277953; }
+.primary[data-status="attention"] h3 { color: #9b650d; }
+.primary[data-status="review"] h3 { color: #b9263a; }
+.primary p, .content p, .tip p { font-size: .95rem; line-height: 1.55; }
+.comparison { display: grid; gap: .6rem; }
+.content { border-inline-start: 3px solid #375eaa; padding-inline-start: .85rem; display: grid; gap: .3rem; }
+.content strong { font-size: .95rem; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+.metrics > div { padding: .9rem; background: var(--surface); border: 1px solid var(--line); border-radius: .85rem; min-width: 0; }
+.metrics dt { font-size: .75rem; color: var(--muted); font-weight: 700; }
+.metrics dd { font-size: .95rem; font-weight: 800; margin-block: .25rem; }
+.metrics p { font-size: .8rem; line-height: 1.45; font-weight: 400; color: var(--muted); }
+.metrics [data-status="unavailable"] dd { color: var(--muted); font-weight: 600; }
+.tip { background: var(--surface); padding: 1rem; border-radius: .85rem; border-inline-start: 3px solid #e7193d; }
+.tip strong { font-size: .85rem; }
+:global(.dark) .primary[data-status="correct"] h3 { color: #7bdab1; }
+:global(.dark) .primary[data-status="attention"] h3 { color: #f3c86b; }
+:global(.dark) .primary[data-status="review"] h3 { color: #ff98a5; }
+.reference { display: grid; gap: .6rem; min-width: 0; }
+.reference audio { width: 100%; max-width: 100%; height: 44px; margin-block: .4rem; }
+.reference button { min-height: 44px; font-size: .9rem; padding: .7rem .9rem; white-space: normal; text-align: center; justify-content: center; }
+.track { display: grid; min-width: 0; }
+.track span { font-size: .8rem; color: var(--muted); }
+.referenceError { color: var(--accent-text); font-size: .85rem; line-height: 1.5; }
+@media (max-width: 420px) { .metrics { grid-template-columns: 1fr; } .primary { padding: 1rem; } }
