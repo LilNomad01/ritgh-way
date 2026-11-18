@@ -157,7 +157,11 @@ export function normalizeSpeakingEvaluation(value: SpeakingEvaluation, reference
   const result = { ...fallback, ...value };
   for (const name of ["vocabulary", "grammar"] as const) {
     const metric = result[name];
-    if (metric?.available && ["correct", "attention", "review"].includes(metric.status)) result[name] = { ...metric, feedback: contentCopy[name][metric.status] } as typeof result[typeof name];
+    if (metric?.available && ["correct", "attention", "review"].includes(metric.status)) {
+      const feedback = contentCopy[name][metric.status];
+      if (name === "vocabulary") result.vocabulary = { ...result.vocabulary, feedback };
+      else result.grammar = { ...result.grammar, feedback };
+    }
   }
   if (isolated(reference)) {
     result.grammar = fallback.grammar;
