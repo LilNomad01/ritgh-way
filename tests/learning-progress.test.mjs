@@ -152,6 +152,8 @@ test('published lesson without video or exercise stays in preparation and blocks
   assert.equal(state.lessonStates[1].unlocked,false);
   assert.equal(state.sectionStates[0].lessonCount,0, 'unready lessons stay outside the denominator');
   assert.equal(getNextLearningStep(state).kind,'pending');
+  assert.equal(getNextLearningStep(state).pendingReason,'lesson');
+  assert.equal(getNextLearningStep(state).lessonId,1);
   sqlite.close();
 });
 

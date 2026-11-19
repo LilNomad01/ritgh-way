@@ -27,9 +27,9 @@ export async function GET(request: Request) {
     const lessons = ((assertSupabase(lessonResult) ?? []) as { id: number; sectionId: number; title: string; description: string; duration: string; thumbnailKey: string | null; thumbnailMobileKey: string | null }[]).flatMap(row => {
       const section = sectionById.get(row.sectionId);
       const courseModule = section ? moduleById.get(section.moduleId) : undefined;
-      return section && courseModule ? [{ id: row.id, sectionId: row.sectionId, title: row.title, description: row.description, duration: row.duration, sectionTitle: section.title, moduleTitle: courseModule.title, level: courseModule.level, imageKey: row.thumbnailKey ?? courseModule.imageKey, imageMobileKey: row.thumbnailMobileKey ?? courseModule.imageMobileKey }] : [];
+      return section && courseModule ? [{ id: row.id, sectionId: row.sectionId, title: row.title, description: row.description, duration: row.duration, sectionTitle: section.title, moduleId: courseModule.id, moduleTitle: courseModule.title, level: courseModule.level, imageKey: row.thumbnailKey ?? courseModule.imageKey, imageMobileKey: row.thumbnailMobileKey ?? courseModule.imageMobileKey }] : [];
     });
-    const modules = moduleRows.map(({ position: _position, ...module }) => ({ ...module, state: academic.moduleStates.find((item: ModuleAcademicState) => item.moduleId === module.id) }));
+    const modules = moduleRows.map(module => ({ ...module, state: academic.moduleStates.find((item: ModuleAcademicState) => item.moduleId === module.id) }));
     const recentRows = [
       ...((assertSupabase(sessionResult) ?? []) as { lessonId: number; currentIndex: number; total: number; updatedAt: string }[]).map(row => ({ ...row, kind: "practice" })),
       ...((assertSupabase(videoResult) ?? []) as { lessonId: number; currentIndex: number; total: number; updatedAt: string }[]).map(row => ({ ...row, kind: "video" })),
@@ -42,9 +42,9 @@ export async function GET(request: Request) {
     const sectionLesson = lessons.find(item => item.sectionId === step?.sectionId);
     const recent = recentRows.find(row => row.lessonId === step?.lessonId && row.kind === step.kind);
     const resume = lesson && step
-      ? { ...lesson, started: Boolean(recent), kind: step.kind, position: recent?.currentIndex ?? 0, total: recent?.total ?? 0, href: step.href }
+      ? { ...lesson, description: step.pendingReason === 'lesson' ? 'Esta aula ainda está em preparação. Você pode revisar o conteúdo disponível enquanto aguarda a publicação.' : lesson.description, started: Boolean(recent), kind: step.kind, position: recent?.currentIndex ?? 0, total: recent?.total ?? 0, href: step.href }
       : step && sectionLesson
-        ? { title: section?.examTitle || sectionLesson.sectionTitle, description: step.kind === 'review' ? 'Revise os pontos em que teve mais dificuldade antes de uma nova tentativa.' : step.kind === 'exam' ? 'As aulas desta matéria terminaram. Agora aplique o que aprendeu.' : 'A avaliação desta matéria está em preparação. Enquanto isso, você pode revisar as aulas já concluídas.', duration: null, sectionTitle: sectionLesson.sectionTitle, moduleTitle: sectionLesson.moduleTitle, imageKey: sectionLesson.imageKey, imageMobileKey: sectionLesson.imageMobileKey, started: false, kind: step.kind, position: 0, total: section?.examQuestionCount ?? 0, href: step.kind === 'pending' ? `/aulas/${sectionLesson.id}` : step.href }
+        ? { title: section?.examTitle || sectionLesson.sectionTitle, description: step.kind === 'review' ? 'Revise os pontos em que teve mais dificuldade antes de uma nova tentativa.' : step.kind === 'exam' ? 'As aulas desta matéria terminaram. Agora aplique o que aprendeu.' : 'A avaliação desta matéria está em preparação. Enquanto isso, você pode revisar as aulas já concluídas.', duration: null, sectionTitle: sectionLesson.sectionTitle, moduleId: sectionLesson.moduleId, moduleTitle: sectionLesson.moduleTitle, imageKey: sectionLesson.imageKey, imageMobileKey: sectionLesson.imageMobileKey, started: false, kind: step.kind, position: 0, total: section?.examQuestionCount ?? 0, href: step.href }
         : step?.kind === 'complete' ? { title: 'Curso concluído', description: 'Você finalizou todas as matérias e avaliações disponíveis.', duration: null, sectionTitle: '', moduleTitle: '', imageKey: null, imageMobileKey: null, started: false, kind: 'complete', position: 0, total: 0, href: step.href } : null;
     const totalAnswers = practiceRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const correctAnswers = practiceRows.reduce((sum, row) => sum + Number(row.score || 0), 0);

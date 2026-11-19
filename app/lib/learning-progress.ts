@@ -65,6 +65,7 @@ export type LearningStep = {
   href: string;
   lessonId?: number;
   sectionId?: number;
+  pendingReason?: "lesson" | "exam";
 };
 
 export type LearningState = {
@@ -77,15 +78,16 @@ export function getNextLearningStep(academic: LearningState): LearningStep | nul
   for (const section of academic.sectionStates) {
     if (!section.unlocked || section.reviewOnly) continue;
     for (const lesson of academic.lessonStates.filter((item) => item.sectionId === section.sectionId)) {
-      if (lesson.completed || !lesson.unlocked) continue;
-      if (lesson.ready === false) return { kind: "pending", href: "/aulas", sectionId: section.sectionId };
+      if (lesson.completed) continue;
+      if (lesson.ready === false) return { kind: "pending", href: "/aulas", sectionId: section.sectionId, lessonId: lesson.lessonId, pendingReason: "lesson" };
+      if (!lesson.unlocked) continue;
       if (lesson.videoStatus === "completed" && lesson.exerciseCount > 0 && !lesson.exercisesCompleted) {
         return { kind: "practice", href: `/praticar/${lesson.lessonId}/sessao`, lessonId: lesson.lessonId, sectionId: section.sectionId };
       }
       return { kind: "video", href: `/aulas/${lesson.lessonId}`, lessonId: lesson.lessonId, sectionId: section.sectionId };
     }
     if (section.examPassed) continue;
-    if (!section.examId || !section.examUnlocked) return { kind: "pending", href: `/aulas`, sectionId: section.sectionId };
+    if (!section.examId || !section.examUnlocked) return { kind: "pending", href: `/aulas`, sectionId: section.sectionId, pendingReason: "exam" };
     return { kind: section.examAttempts > 0 ? "review" : "exam", href: `/prova/${section.sectionId}`, sectionId: section.sectionId };
   }
   return { kind: "complete", href: "/jornada" };

@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { MaterialIcon } from "./components/MaterialIcon";
 import { Onboarding } from "./components/Onboarding";
 import { StudentDashboard } from "./components/StudentDashboard";
+import dashboardStyles from "./components/DashboardPresentation.module.css";
 import { PasswordChange } from "./components/PasswordChange";
 import { InstallAppButton } from "./components/PwaSupport";
 import { clearPrivateClientCache, getCachedSessionProfile, loadSessionProfile, type SessionProfile } from "./lib/client-data";
@@ -28,7 +29,7 @@ const navItems = [
 ];
 
 
-function Achievements() { return <div className="page-view achievements-page"><section className="achievements-intro"><span className="achievements-icon"><MaterialIcon name="workspace_premium" filled /></span><div><span className="eyebrow">SUAS CONQUISTAS</span><h1>Seu progresso, etapa por etapa.</h1><p>Acompanhe suas atividades concluídas e resultados reais. Medalhas serão exibidas quando estiverem disponíveis.</p></div></section><StudentDashboard /></div>; }
+function Achievements() { return <div className="page-view achievements-page"><section className="achievements-intro"><span className="achievements-icon"><MaterialIcon name="workspace_premium" filled /></span><div><span className="eyebrow">SUAS CONQUISTAS</span><h2 className={dashboardStyles.introTitle}>Seu progresso, etapa por etapa.</h2><p>Cada atividade conta. Consulte seus resultados e o avanço registrado em cada módulo.</p></div></section><StudentDashboard view="achievements" /></div>; }
 
 type AppView = "Início" | "Aulas" | "Jornada" | "Praticar" | "Conquistas";
 

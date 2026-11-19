@@ -66,11 +66,6 @@ async function optimizeArtwork(file: File, device: "desktop" | "mobile") {
   }
 }
 
-function fileSizeLabel(size?: number) {
-  if (!size) return "Vídeo";
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function moduleLessons(data: Data, moduleId: number) {
   const sectionIds = data.sections.filter((section) => section.moduleId === moduleId).map((section) => section.id);
   return data.lessons.filter((lesson) => sectionIds.includes(lesson.sectionId)).sort((left, right) => left.position - right.position || left.id - right.id);
@@ -379,7 +374,6 @@ export function AdminPanel() {
 
   const publishedLessons = useMemo(() => data.lessons.filter((lesson) => lesson.status === "Publicado").length, [data.lessons]);
   const averageScore = data.students.length ? Math.round(data.students.reduce((sum, student) => sum + student.placementScore, 0) / data.students.length * 10) / 10 : 0;
-  const selectedVideoLesson = data.lessons.find((lesson) => String(lesson.id) === uploadLesson);
   const orderedModules = data.modules.slice().sort((left, right) => left.position - right.position || left.id - right.id);
 
   return (

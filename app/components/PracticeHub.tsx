@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Artwork, CourseModule, CourseSection } from "../lib/course";
 import { MaterialIcon } from "./MaterialIcon";
-import { authenticatedFetch } from "../lib/client-data";
+import { readJson } from "../lib/client-data";
 
 export type PracticeSummary = Artwork & {
   id: number;
@@ -18,6 +18,7 @@ export type PracticeSummary = Artwork & {
   estimatedMinutes: number;
   skills: string[];
   bestScore?: number;
+  bestTotal?: number;
   lastScore?: number;
   lastTotal?: number;
   attemptsCount?: number;
@@ -45,7 +46,7 @@ function PracticeRail({ title, practices, onOpen }: { title: string; practices: 
 }
 
 function PracticeDetail({ practice, onBack, onStart }: { practice: PracticeSummary; onBack: () => void; onStart: () => void }) {
-  const bestTotal = practice.lastTotal || practice.exerciseCount;
+  const bestTotal = practice.bestTotal ?? practice.lastTotal ?? practice.exerciseCount;
   const skills = practice.skills.map((skill) => {
     const value = skill.toLowerCase();
     const listening = value.includes("listening");
@@ -53,30 +54,38 @@ function PracticeDetail({ practice, onBack, onStart }: { practice: PracticeSumma
     const grammar = value.includes("gram");
     return { skill, icon: listening ? "headphones" : grammar ? "spellcheck" : speaking ? "record_voice_over" : "psychology", detail: listening ? "Entender palavras e frases ao ouvir." : speaking ? "Falar com clareza e confiança." : grammar ? "Usar estruturas corretas em contexto." : value.includes("vocab") ? "Ampliar palavras para situações reais." : "Compreender e aplicar o conteúdo." };
   });
-  return <div className="practice-detail-page"><button className="module-back-button" onClick={onBack}><MaterialIcon name="arrow_back" />Voltar para Praticar</button><section className="practice-detail-hero"><PracticeArtwork practice={practice} /><div className="practice-detail-copy"><span className="eyebrow">{practice.level} · {practice.sectionTitle}</span><h1>{practice.title}</h1><p>Pratique os principais conteúdos estudados nesta aula e fortaleça o que aprendeu.</p>{practice.smartRotation ? <div className="practice-rotation-badge"><MaterialIcon name="autorenew" /><span><strong>Rotação inteligente ativa</strong><small>Uma combinação diferente a cada nova tentativa</small></span></div> : null}<div className="practice-detail-facts"><span><MaterialIcon name="quiz" /><strong>{practice.exerciseCount}</strong><small>exercícios</small></span><span><MaterialIcon name="schedule" /><strong>{practice.estimatedMinutes}</strong><small>minutos</small></span><span><MaterialIcon name="bolt" /><strong>{practice.exerciseCount * 20}</strong><small>XP possíveis</small></span></div><button className="primary-button icon-button" onClick={onStart}>{practice.sessionStatus === "active" ? "Continuar prática" : practice.attemptsCount ? "Praticar novamente" : "Começar prática"}<MaterialIcon name="arrow_forward" /></button></div></section><div className="practice-detail-grid"><section><span className="eyebrow">HABILIDADES</span><h2>O que você vai treinar</h2><div className="practice-skills">{skills.map(({ skill, icon, detail }) => <article key={skill}><span><MaterialIcon name={icon} /></span><div><strong>{skill}</strong><small>{detail}</small></div></article>)}</div></section><section><span className="eyebrow">SEU HISTÓRICO</span><h2>{practice.attemptsCount ? "Resultados anteriores" : "Sua primeira tentativa"}</h2>{practice.attemptsCount ? <div className="practice-history"><div><small>MELHOR RESULTADO</small><strong>{practice.bestScore}/{bestTotal}</strong></div><div><small>ÚLTIMA TENTATIVA</small><strong>{practice.lastScore}/{practice.lastTotal}</strong></div><p><MaterialIcon name="history" />{practice.attemptsCount} {practice.attemptsCount === 1 ? "tentativa realizada" : "tentativas realizadas"}</p></div> : <p className="practice-first-copy">Você ainda não realizou esta prática. Reserve alguns minutos e teste seu conhecimento sem pressa.</p>}</section></div></div>;
+  return <div className="practice-detail-page"><button className="module-back-button" onClick={onBack}><MaterialIcon name="arrow_back" />Voltar para Praticar</button><section className="practice-detail-hero"><PracticeArtwork practice={practice} /><div className="practice-detail-copy"><span className="eyebrow">{practice.level} · {practice.sectionTitle}</span><h1>{practice.title}</h1><p>Pratique os principais conteúdos estudados nesta aula e fortaleça o que aprendeu.</p>{practice.smartRotation ? <div className="practice-rotation-badge"><MaterialIcon name="autorenew" /><span><strong>Rotação inteligente ativa</strong><small>Uma combinação diferente a cada nova tentativa</small></span></div> : null}<div className="practice-detail-facts"><span><MaterialIcon name="quiz" /><strong>{practice.exerciseCount}</strong><small>exercícios</small></span><span><MaterialIcon name="schedule" /><strong>{practice.estimatedMinutes}</strong><small>minutos estimados</small></span><span><MaterialIcon name="history" /><strong>{practice.attemptsCount ?? 0}</strong><small>tentativas realizadas</small></span></div><button className="primary-button icon-button" onClick={onStart}>{practice.sessionStatus === "active" ? "Continuar prática" : practice.attemptsCount ? "Praticar novamente" : "Começar prática"}<MaterialIcon name="arrow_forward" /></button></div></section><div className="practice-detail-grid"><section><span className="eyebrow">HABILIDADES</span><h2>O que você vai treinar</h2><div className="practice-skills">{skills.map(({ skill, icon, detail }) => <article key={skill}><span><MaterialIcon name={icon} /></span><div><strong>{skill}</strong><small>{detail}</small></div></article>)}</div></section><section><span className="eyebrow">SEU HISTÓRICO</span><h2>{practice.attemptsCount ? "Resultados anteriores" : "Sua primeira tentativa"}</h2>{practice.attemptsCount ? <div className="practice-history"><div><small>MELHOR RESULTADO</small><strong>{practice.bestScore}/{bestTotal}</strong></div><div><small>ÚLTIMA TENTATIVA</small><strong>{practice.lastScore}/{practice.lastTotal}</strong></div><p><MaterialIcon name="history" />{practice.attemptsCount} {practice.attemptsCount === 1 ? "tentativa realizada" : "tentativas realizadas"}</p></div> : <p className="practice-first-copy">Você ainda não realizou esta prática. Reserve alguns minutos e teste seu conhecimento sem pressa.</p>}</section></div></div>;
 }
 
 export function PracticeHub({ lessonId, onOpenDetail, onStartSession, onBackToHub }: { lessonId?: number; onOpenDetail: (lessonId: number) => void; onStartSession: (lessonId: number) => void; onBackToHub: () => void }) {
   const [data, setData] = useState<PracticeData>(emptyData);
   const [detail, setDetail] = useState<PracticeSummary | null>(null);
   const [filter, setFilter] = useState("Todos");
-  const [loading, setLoading] = useState(true);
+  const [loadedEndpoint, setLoadedEndpoint] = useState("");
+  const [failure, setFailure] = useState<{ endpoint: string; message: string } | null>(null);
+  const [retry, setRetry] = useState(0);
+  const endpoint = lessonId ? `/api/practices/${lessonId}` : "/api/practices";
+  const loading = loadedEndpoint !== endpoint;
 
   useEffect(() => {
     let cancelled = false;
-    const endpoint = lessonId ? `/api/practices/${lessonId}` : "/api/practices";
-    authenticatedFetch(endpoint).then((response) => response.ok ? response.json() as Promise<PracticeData & { practice?: PracticeSummary }> : Promise.reject()).then((result) => {
+    readJson<PracticeData & { practice?: PracticeSummary }>(endpoint).then((result) => {
       if (cancelled) return;
-      if (lessonId) setDetail(result.practice ?? null);
+      if (lessonId) {
+        if (!result.practice || result.practice.id !== lessonId) throw new Error("Esta prática não está disponível. Volte à biblioteca e tente novamente.");
+        setDetail(result.practice);
+      }
       else setData(result);
-    }).catch(() => undefined).finally(() => { if (!cancelled) setLoading(false); });
+      setLoadedEndpoint(endpoint);
+    }).catch(error => { if (!cancelled) setFailure({ endpoint, message: error instanceof Error ? error.message : "Não foi possível carregar suas práticas." }); });
     return () => { cancelled = true; };
-  }, [lessonId]);
+  }, [endpoint, lessonId, retry]);
 
   const levels = ["Todos", ...Array.from(new Set(data.modules.map((courseModule) => courseModule.level)))];
   const visibleModules = useMemo(() => data.modules.filter((courseModule) => filter === "Todos" || courseModule.level === filter), [data.modules, filter]);
   const continuePractice = data.practices.find((practice) => practice.sessionStatus === "active") ?? data.practices.find((practice) => (practice.attemptsCount ?? 0) > 0);
 
+  if (failure?.endpoint === endpoint) return <div className="page-view practice-page"><section className="dashboard-error section-block" role="alert"><h2>Não foi possível abrir a prática</h2><p>{failure.message}</p><button type="button" className="outline-button" onClick={() => { setFailure(null); setLoadedEndpoint(""); setRetry(count => count + 1); }}>Tentar novamente</button><button type="button" className="outline-button" onClick={onBackToHub}>Voltar para Praticar</button></section></div>;
   if (loading) return <div className="page-view practice-page"><div className="journey-loading">Preparando suas práticas...</div></div>;
   if (lessonId && detail) return <div className="page-view practice-page"><PracticeDetail practice={detail} onBack={onBackToHub} onStart={() => onStartSession(detail.id)} /></div>;
 

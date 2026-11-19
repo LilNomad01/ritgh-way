@@ -1,6 +1,7 @@
 import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { requireAuth } from "../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../lib/academic";
+import { practiceHistory } from "../../lib/practice-history";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +50,10 @@ export async function GET(request: Request) {
     return Boolean(state?.unlocked && state.videoStatus === "completed");
   }).map((row) => {
     const slug = lessonSlug(row.title);
-    const lessonAttempts = attemptRows.filter((attempt) => attempt.lessonId === row.id || attempt.lessonSlug === slug || attempt.lessonSlug === `${slug}-practice` || attempt.lessonSlug === `lesson-${row.id}-practice`);
-    const last = lessonAttempts[0];
+    const history = practiceHistory(attemptRows, row.id, slug);
     const session = sessionByLesson.get(row.id);
     const skills = Array.from(new Set((row.skillsJson ?? "").split("||").flatMap((value) => stringList(value))));
-    return { ...row, smartRotation: Boolean(row.smartRotation), exerciseCount: Number(row.exerciseCount), estimatedMinutes: Math.max(5, Number(row.exerciseCount) * 2), skills, attemptsCount: lessonAttempts.length, bestScore: lessonAttempts.length ? Math.max(...lessonAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, currentIndex: session?.currentIndex, sessionStatus: session?.status };
+    return { ...row, smartRotation: Boolean(row.smartRotation), exerciseCount: Number(row.exerciseCount), estimatedMinutes: Math.max(5, Number(row.exerciseCount) * 2), skills, ...history, currentIndex: session?.currentIndex, sessionStatus: session?.status };
   });
   return Response.json({ modules, sections, practices }, { headers: { "cache-control": "private, no-store" } });
 }

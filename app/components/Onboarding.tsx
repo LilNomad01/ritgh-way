@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { InstallAppButton } from "./PwaSupport";
 import { ListeningAudio } from "./ListeningAudio";
 import { placementQuestions, placementResult } from "../lib/placement";
@@ -38,6 +38,7 @@ export function Onboarding({ onComplete, initialStep = "home", sessionExpired = 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState(sessionExpired ? "Sua sessão expirou. Entre novamente para continuar." : "");
+  const [loginLockSeconds, setLoginLockSeconds] = useState(0);
   const [signupError, setSignupError] = useState("");
 
   const { score, level: testedLevel } = placementResult(answers);
@@ -45,6 +46,13 @@ export function Onboarding({ onComplete, initialStep = "home", sessionExpired = 
   const flowSteps: Step[] = ["signup", "goal", "daily", "test-intro", "test", "result"];
   const flowIndex = flowSteps.indexOf(step);
   const flowProgress = step === "test" ? 55 + ((questionIndex + 1) / placementQuestions.length) * 35 : Math.max(0, ((flowIndex + 1) / flowSteps.length) * 100);
+
+  const loginLocked = loginLockSeconds > 0;
+  useEffect(() => {
+    if (!loginLocked) return;
+    const timer = window.setInterval(() => setLoginLockSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [loginLocked]);
 
   function back() {
     const map: Partial<Record<Step, Step>> = { login: "home", signup: "home", goal: "signup", daily: "goal", "test-intro": "daily", test: "test-intro", result: "test-intro" };
@@ -66,7 +74,8 @@ export function Onboarding({ onComplete, initialStep = "home", sessionExpired = 
     setLoginError("");
     try {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: loginEmail, password: loginPassword }) });
-      const result = await response.json() as { profile?: Profile; error?: string };
+      const result = await response.json() as { profile?: Profile; error?: string; retryAfterSeconds?: number };
+      if (response.status === 429) setLoginLockSeconds(Math.max(0, result.retryAfterSeconds ?? 0));
       if (!response.ok || !result.profile) throw new Error(result.error ?? "Não foi possível entrar.");
       onComplete(result.profile);
     } catch (error) {
@@ -107,7 +116,7 @@ export function Onboarding({ onComplete, initialStep = "home", sessionExpired = 
 
   if (step === "login") {
     return (
-      <div className="flow-shell login-shell"><header className="flow-header"><button onClick={back}>←</button><div className="entry-brand"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>ONLINE</small></div></div><span /></header><main className="login-card"><div className="flow-mascot small"><div className="entry-eagle"><img src="/right-way-brand-optimized.jpg" alt="" /></div></div><span className="flow-kicker">BEM-VINDO DE VOLTA</span><h1>Continue de onde parou.</h1><p>Entre com suas credenciais para acessar sua conta.</p><label>E-mail<input autoFocus type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="voce@email.com" /></label><label>Senha<input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && login()} placeholder="Sua senha" /></label>{loginError && <div className="login-error">{loginError}</div>}<button className="flow-primary" disabled={!loginEmail.includes("@") || !loginPassword || saving} onClick={login}>{saving ? "ENTRANDO..." : "ENTRAR COM SEGURANÇA"}</button><div className="security-note"><span>⌾</span> Sessão protegida por token seguro e cookie HTTP-only</div><button className="flow-text" onClick={() => setStep("signup")}>Ainda não tenho uma conta</button></main></div>
+      <div className="flow-shell login-shell"><header className="flow-header"><button onClick={back}>←</button><div className="entry-brand"><div className="brand-icon"><img src="/right-way-brand-optimized.jpg" alt="" /></div><div><strong>RIGHT WAY</strong><small>ONLINE</small></div></div><span /></header><main className="login-card"><div className="flow-mascot small"><div className="entry-eagle"><img src="/right-way-brand-optimized.jpg" alt="" /></div></div><span className="flow-kicker">BEM-VINDO DE VOLTA</span><h1>Continue de onde parou.</h1><p>Entre com suas credenciais para acessar sua conta.</p><label>E-mail<input autoFocus type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} placeholder="voce@email.com" /></label><label>Senha<input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} onKeyDown={(event) => event.key === "Enter" && login()} placeholder="Sua senha" /></label>{loginError && <div className="login-error" role="alert">{loginLockSeconds > 0 ? <>Muitas tentativas. Aguarde {Math.floor(loginLockSeconds / 60)}:{String(loginLockSeconds % 60).padStart(2, "0")} antes de tentar novamente.</> : loginError}</div>}<button className="flow-primary" disabled={!loginEmail.includes("@") || !loginPassword || saving || loginLockSeconds > 0} onClick={login}>{saving ? "ENTRANDO..." : "ENTRAR COM SEGURANÇA"}</button><div className="security-note"><span>⌾</span> Sessão protegida por token seguro e cookie HTTP-only</div><button className="flow-text" onClick={() => setStep("signup")}>Ainda não tenho uma conta</button></main></div>
     );
   }
 

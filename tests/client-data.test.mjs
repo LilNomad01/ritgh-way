@@ -52,6 +52,20 @@ test('failed reads are evicted so retry can recover', async () => {
   }
 });
 
+test('practice read failures stay errors instead of becoming an empty practice library', async () => {
+  const originalFetch=globalThis.fetch;
+  try {
+    const {readJson}=await loadClientData();
+    assert.equal(typeof readJson,'function');
+    globalThis.fetch=async()=>Response.json({error:'Conclua o vídeo da aula para liberar esta prática.'},{status:403});
+    await assert.rejects(readJson('/api/practices/2'),/Conclua o vídeo/);
+    globalThis.fetch=async()=>new Response('<html>offline</html>',{status:503});
+    await assert.rejects(readJson('/api/practices'),/503/);
+    globalThis.fetch=async()=>new Response('<html>wrong response</html>');
+    await assert.rejects(readJson('/api/practices'),/resposta inválida/i);
+  } finally {globalThis.fetch=originalFetch;}
+});
+
 test('expired access refreshes once for concurrent private reads and retries both', async () => {
   const originalFetch = globalThis.fetch;
   let authenticated = false;

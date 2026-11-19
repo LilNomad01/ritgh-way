@@ -59,7 +59,6 @@ type SectionRow = { id: number; moduleId: number; position: number };
 type LessonRow = { id: number; sectionId: number; position: number; videoKey: string | null };
 type VideoRow = { lessonId: number; status: LessonAcademicState["videoStatus"]; progressPercent: number; positionSeconds: number; durationSeconds: number };
 type AttemptRow = { lessonId: number; score: number; total: number; answersJson: string | null };
-type ExerciseCountRow = { lessonId: number; exerciseCount: number };
 type ExamRow = { id: number; sectionId: number; title: string; passScore: number; questionCount: number };
 type ExamAttemptRow = { examId: number; passed: number; percentage: number; answersJson: string };
 

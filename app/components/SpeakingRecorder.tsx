@@ -6,9 +6,10 @@ import type { SpeakingEvaluation } from "../lib/speech";
 import { SpeakingFeedback } from "./SpeakingFeedback";
 import { authenticatedFetch } from "../lib/client-data";
 import { normalizeRecording } from "../lib/speech-capture";
+import { speechRequestOutcome } from "../lib/speech-client";
 
 type SpeakingResponse = { attemptId: number; attemptNumber: number; result: SpeakingEvaluation };
-type RecorderState = "ready" | "recording" | "preparing" | "review" | "processing" | "result";
+type RecorderState = "ready" | "permission" | "recording" | "preparing" | "review" | "processing" | "result";
 
 function supportedMime() {
   if (typeof MediaRecorder === "undefined") return "";
@@ -30,6 +31,8 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
   const mounted = useRef(true);
   const requestId = useRef("");
   const requestPending = useRef(false);
+  const starting = useRef(false);
+  const confirming = useRef(false);
 
   useEffect(() => {
     if (state !== "recording") return;
@@ -59,8 +62,10 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
   }
 
   async function start() {
+    if (starting.current) return;
     setError("");
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { setError("Este navegador não oferece gravação compatível. Atualize o navegador ou use Chrome/Safari recente."); return; }
+    starting.current = true; setState("permission");
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
       if (!mounted.current) { media.getTracks().forEach(track => track.stop()); return; }
@@ -88,9 +93,11 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
       startedAt.current = Date.now(); setSeconds(0); instance.start(250); setState("recording");
     } catch (cause) {
       stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
+      if (!mounted.current) return;
       const denied = cause instanceof DOMException && ["NotAllowedError", "PermissionDeniedError"].includes(cause.name);
       setError(denied ? "O acesso ao microfone foi negado. Libere o microfone nas configurações do navegador e tente novamente." : "Não foi possível ativar o microfone. Verifique se outro aplicativo está usando a gravação.");
-    }
+      setState("ready");
+    } finally { starting.current = false; }
   }
 
   function stop() {
@@ -98,7 +105,8 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
   }
 
   async function confirm() {
-    if (!blob || state === "processing") return;
+    if (!blob || confirming.current) return;
+    confirming.current = true;
     setState("processing"); setError("");
     try {
       const form = new FormData();
@@ -118,9 +126,9 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
         request = await authenticatedFetch(url, { signal: AbortSignal.timeout(15_000) });
       }
       const data = await request.json() as SpeakingResponse & { error?: string; status?: string };
-      if (request.status === 404) requestPending.current = false;
-      if (!request.ok) requestPending.current = false;
-      if (data.status === "failed") { requestId.current = crypto.randomUUID(); requestPending.current = false; }
+      const outcome = speechRequestOutcome(request.status, data);
+      requestPending.current = outcome === "pending";
+      if (outcome === "failed") requestId.current = crypto.randomUUID();
       if (!request.ok || request.status === 202 || !data.attemptId || !data.result) throw new Error(data.error || "A análise ainda não terminou. Consulte novamente em alguns segundos.");
       if (!mounted.current) return;
       setResponse(data); setState("result"); onConfirmed(data);
@@ -129,12 +137,13 @@ export function SpeakingRecorder({ exerciseId, targetText, onConfirmed, onReset 
       setError(cause instanceof DOMException && cause.name === "TimeoutError" ? "A análise ainda pode estar em andamento. Sua gravação foi mantida; consulte novamente sem gerar outra análise." : cause instanceof Error ? cause.message : "A conexão falhou. Consulte o resultado novamente; sua gravação foi mantida.");
       setRecovering(requestPending.current);
       setState("review");
-    }
+    } finally { confirming.current = false; }
   }
 
   return <section className={`speaking-recorder state-${state}`} aria-live="polite">
     <header><span><MaterialIcon name="mic" filled /></span><div><small>SPEAKING</small><strong>{state === "recording" ? "Gravando sua resposta" : state === "processing" ? "Analisando sua fala" : state === "result" ? "Sua fala" : "Grave sua resposta"}</strong></div>{state === "recording" && <b>● {String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}</b>}</header>
     {state === "ready" && <><p>Toque no botão quando estiver pronto. O microfone só será ativado com sua permissão.</p><button type="button" className="speaking-primary" onClick={() => void start()}><MaterialIcon name="mic" />Gravar resposta</button></>}
+    {state === "permission" && <p role="status">Aguardando permissão para usar o microfone…</p>}
     {state === "recording" && <><div className="speaking-wave" aria-hidden="true">{Array.from({ length: 16 }, (_, index) => <i key={index} />)}</div><p>Fale com naturalidade. A gravação não será enviada sem sua confirmação.</p><button type="button" className="speaking-stop" onClick={stop}><MaterialIcon name="stop" filled />Parar gravação</button></>}
     {state === "preparing" && <p role="status">Preparando sua gravação no dispositivo…</p>}
     {state === "review" && <><p>Ouça antes de confirmar. A análise envia o áudio à OpenAI; não armazenamos sua gravação permanentemente.</p><audio src={audioUrl} controls preload="metadata" /><div className="speaking-actions"><button type="button" className="outline-button" onClick={reset}><MaterialIcon name="refresh" />Gravar novamente</button><button type="button" className="speaking-primary" onClick={() => void confirm()}><MaterialIcon name="check" />{recovering ? "Consultar análise" : "Confirmar gravação e analisar"}</button></div></>}

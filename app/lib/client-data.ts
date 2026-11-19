@@ -65,10 +65,14 @@ export async function authenticatedFetch(url: string, init?: RequestInit) {
   return response;
 }
 
-async function readJson<T>(url: string): Promise<T> {
+export async function readJson<T>(url: string): Promise<T> {
   const response = await authenticatedFetch(url, { cache: "no-store" });
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-  return response.json() as Promise<T>;
+  if (!response.ok) {
+    const error = await response.json().catch(() => null) as { error?: unknown } | null;
+    throw new Error(typeof error?.error === "string" ? error.error : `Não foi possível carregar os dados (${response.status}). Tente novamente.`);
+  }
+  try { return await response.json() as T; }
+  catch { throw new Error("O servidor retornou uma resposta inválida. Tente novamente."); }
 }
 
 export function loadSessionProfile() {

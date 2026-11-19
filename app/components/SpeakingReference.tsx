@@ -11,6 +11,7 @@ export function SpeakingReference({ exerciseId, targetText, studentAudioUrl }: {
   const [error, setError] = useState("");
   const [comparing, setComparing] = useState(false);
   const player = useRef<HTMLAudioElement>(null);
+  const studentPlayer = useRef<HTMLAudioElement>(null);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
@@ -33,8 +34,8 @@ export function SpeakingReference({ exerciseId, targetText, studentAudioUrl }: {
 
   return <section className={styles.reference} aria-label="Áudio de referência">
     <div className="speaking-actions"><button type="button" className="outline-button" disabled={busy} onClick={() => void listen()}><MaterialIcon name="volume_up" />{busy ? "Preparando referência…" : url ? "Ouvir novamente" : "Ouvir pronúncia de referência"}</button>{studentAudioUrl && <button type="button" className="outline-button" aria-expanded={comparing} onClick={() => setComparing(value => !value)}><MaterialIcon name="compare_arrows" />Comparar</button>}</div>
-    {url && <div className={styles.track}><span>Áudio de referência enviado pela professora</span><audio ref={player} src={url} controls preload="metadata" autoPlay /></div>}
-    {comparing && studentAudioUrl && <div className={styles.track}><span>Sua gravação · disponível nesta sessão</span><audio src={studentAudioUrl} controls preload="metadata" onPlay={() => player.current?.pause()} /></div>}
+    {url && <div className={styles.track}><span>Áudio de referência enviado pela professora</span><audio ref={player} src={url} controls preload="metadata" autoPlay onPlay={() => studentPlayer.current?.pause()} /></div>}
+    {comparing && studentAudioUrl && <div className={styles.track}><span>Sua gravação · disponível nesta sessão</span><audio ref={studentPlayer} src={studentAudioUrl} controls preload="metadata" onPlay={() => player.current?.pause()} /></div>}
     <small>O áudio enviado é reutilizado. Ouvir novamente não gera voz nem consome tokens de IA.</small>
     {error && <p className={styles.referenceError} role="status">{error}</p>}
   </section>;

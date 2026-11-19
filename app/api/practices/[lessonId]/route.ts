@@ -3,6 +3,7 @@ import { requireAuth } from "../../../lib/auth";
 import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { parsePracticePlan, parseStringList, refreshPracticePlan, type PracticeExerciseSource } from "../../../lib/practice-rotation";
 import type { SpeakingEvaluation } from "../../../lib/speech";
+import { practiceHistory } from "../../../lib/practice-history";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula para liberar esta prática." }, { status: 403 });
   const typedExercises = (assertSupabase(exerciseResult) ?? []) as ExerciseRow[];
   const slug = lessonSlug(practice.title);
-  const typedAttempts = ((assertSupabase(attemptResult) ?? []) as { lessonId?: number; lessonSlug: string; score: number; total: number; createdAt: string }[]).filter(attempt => attempt.lessonId === lessonId || attempt.lessonSlug === slug || attempt.lessonSlug === `${slug}-practice` || attempt.lessonSlug === `lesson-${lessonId}-practice`);
+  const history = practiceHistory((assertSupabase(attemptResult) ?? []) as { lessonId?: number; lessonSlug: string; score: number; total: number }[], lessonId, slug);
   const sessionRow = assertSupabase(sessionResult) as { currentIndex: number; answersJson: string; score: number; total: number; status: "active" | "completed"; exercisePlanJson?: string; speakingAttemptIdsJson?: string } | null;
   if (!typedExercises.length) return Response.json({ error: "Esta aula ainda não tem exercícios publicados." }, { status: 404 });
   const storedPlan = parsePracticePlan(sessionRow?.exercisePlanJson);
@@ -55,7 +56,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   const exercises = sessionRow?.status === "active" && storedPlan.length
     ? refreshPracticePlan(storedPlan, typedExercises, answers.length)
     : typedExercises.map((exercise) => ({ ...exercise, options: parseStringList(exercise.optionsJson), accepted: parseStringList(exercise.acceptedJson), skills: parseStringList(exercise.skillsJson), variantKey: -1 }));
-  const last = typedAttempts[0];
   const skills = Array.from(new Set(exercises.flatMap((exercise) => exercise.skills ?? [])));
   const session = sessionRow ? { currentIndex: sessionRow.currentIndex, answers, speakingAttemptIds: parseSpeakingAttempts(sessionRow.speakingAttemptIdsJson), score: sessionRow.score, total: sessionRow.status === "active" ? exercises.length : sessionRow.total, status: sessionRow.status } : undefined;
   const speakingEvaluations: Record<string, SpeakingEvaluation> = {};
@@ -66,5 +66,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
       try { speakingEvaluations[String(row.exercise_id)] = JSON.parse(row.result_json); } catch { /* Ignore unreadable historical feedback. */ }
     }
   }
-  return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, attemptsCount: typedAttempts.length, bestScore: typedAttempts.length ? Math.max(...typedAttempts.map((attempt) => attempt.score)) : undefined, lastScore: last?.score, lastTotal: last?.total, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session: session ? { ...session, speakingEvaluations } : undefined }, { headers: { "cache-control": "private, no-store" } });
+  return Response.json({ practice: { ...practice, smartRotation: Boolean(practice.smartRotation), exerciseCount: exercises.length, estimatedMinutes: Math.max(5, exercises.length * 2), skills, exercises, ...history, sessionStatus: session?.status, currentIndex: session?.currentIndex }, session: session ? { ...session, speakingEvaluations } : undefined }, { headers: { "cache-control": "private, no-store" } });
 }
