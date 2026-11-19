@@ -1,6 +1,6 @@
 "use client";
 
-import { RightWayApp } from "../page";
+import { RightWayApp } from "../components/RightWayApp";
 
 export default function AdminPage() {
   return <RightWayApp adminEntry />;

@@ -51,6 +51,14 @@ test('empty course is preparation, not a fabricated completion', () => {
   assert.match(html, /prepara|começa/i);
   assert.doesNotMatch(html, /Jornada concluída|Curso concluído|>100%/);
 });
+test('a subject without ready lessons shows preparation instead of a zero denominator', () => {
+  const data = structuredClone(base);
+  data.academic.sectionStates[0].lessonCount = 0;
+  data.academic.lessonStates.forEach(lesson => { lesson.ready = false; lesson.unlocked = false; });
+  const html = render(data);
+  assert.match(html, /Aulas em preparação/);
+  assert.doesNotMatch(html, /0 de 0 aulas/);
+});
 test('next practice shows the pending-practice label and accessible chapter control', () => {
   const data = structuredClone(base);
   data.academic.lessonStates[0].videoStatus = 'completed';

@@ -247,7 +247,7 @@ export function JourneyView({
               <span className="rwj-chapter-number">{state?.completed ? <MaterialIcon name="check" /> : String(sectionIndex + 1).padStart(2, "0")}</span>
               <span className="rwj-chapter-copy"><small>{state?.completed ? "MATÉRIA CONCLUÍDA" : state?.unlocked ? "MATÉRIA " + String(sectionIndex + 1).padStart(2, "0") : "MATÉRIA BLOQUEADA"}</small>
                 <strong>{section.title}</strong>
-                <span>{state?.completedLessons ?? 0} de {state?.lessonCount ?? lessons.length} aulas disponíveis concluídas</span>
+                <span>{(state?.lessonCount ?? lessons.length) > 0 ? `${state?.completedLessons ?? 0} de ${state?.lessonCount ?? lessons.length} aulas disponíveis concluídas` : "Aulas em preparação"}</span>
               </span>
               <span className="rwj-chapter-right"><b>{state?.percent ?? 0}%</b><MaterialIcon name={expanded ? "keyboard_arrow_up" : "keyboard_arrow_down"} /></span>
             </button>

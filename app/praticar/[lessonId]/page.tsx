@@ -1,4 +1,4 @@
-import { RightWayApp } from "../../page";
+import { RightWayApp } from "../../components/RightWayApp";
 
 export default async function PracticeDetailPage({ params }: { params: Promise<{ lessonId: string }> }) {
   const { lessonId } = await params;

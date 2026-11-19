@@ -50,7 +50,7 @@ test("ships Android and Apple icons at their declared sizes", async () => {
 });
 
 test("loads heavy application areas on demand", async () => {
-  const page = await source("app/page.tsx");
+  const page = await source("app/components/RightWayApp.tsx");
   for (const component of ["AdminPanel", "ExercisePlayer", "JourneyView", "LessonsLibrary", "PracticeHub", "SectionExam"]) {
     assert.match(page, new RegExp(`const ${component} = dynamic`));
   }
@@ -71,7 +71,7 @@ test("creates real login accounts for admin-managed students", async () => {
 test("versions password hashes and forces first-access password replacement", async () => {
   const [auth, page] = await Promise.all([
     source("app/lib/auth.ts"),
-    source("app/page.tsx"),
+    source("app/components/RightWayApp.tsx"),
   ]);
   assert.match(auth, /PASSWORD_SCHEME = "pbkdf2-sha256"/);
   assert.match(auth, /`\$\{PASSWORD_SCHEME\}\$\$\{PASSWORD_ITERATIONS\}\$\$\{hash\}`/);
