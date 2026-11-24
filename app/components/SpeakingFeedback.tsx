@@ -14,11 +14,11 @@ export function SpeakingFeedback({ evaluation, targetText, exerciseId, studentAu
   const pronunciation = result.pronunciation;
   const metrics = [["Clareza", result.clarity], ["Fluência", result.fluency], ["Vocabulário", result.vocabulary], ["Gramática", result.grammar]] as const;
   return <div className={styles.result}>
-    <section className={styles.primary} data-status={pronunciation.available ? pronunciation.status : "unavailable"}>
-      <small>PRONÚNCIA · ORIENTAÇÃO POR IA</small><h3>{pronunciation.available ? metricLabel(pronunciation.status) : "Não foi possível avaliar"}</h3>
+    {pronunciation.available && <section className={styles.primary} data-status={pronunciation.status}>
+      <small>PRONÚNCIA · ORIENTAÇÃO POR IA</small><h3>{metricLabel(pronunciation.status)}</h3>
       <p>{pronunciation.feedback}</p>
-      <small>{pronunciation.available ? "Análise qualitativa da gravação. Não é medição fonética calibrada." : "Nenhuma nota foi atribuída. Você pode praticar novamente."}</small>
-    </section>
+      <small>Análise qualitativa da gravação. Não é medição fonética calibrada.</small>
+    </section>}
     <section className={styles.comparison}><AnswerComparison answer={result.transcription} correct={targetText} expectedLabel="Referência esperada" answerLabel="Transcrição reconhecida" /><small>A transcrição pode errar e não comprova como cada som foi produzido.</small>{result.acousticHeard && recognizedWords(result.acousticHeard) !== recognizedWords(result.transcription) && <p>O analisador de áudio ouviu “{result.acousticHeard}”. Os reconhecimentos divergem; compare sua gravação e tente novamente.</p>}</section>
     <div className={styles.content}><strong>Conteúdo: {metricLabel(result.intent.status)}</strong><p>{result.intent.feedback}</p></div>
     <dl className={styles.metrics}>{metrics.map(([name, metric]) => <div key={name} data-status={metric?.available ? metric.status : "unavailable"}><dt>{name}</dt><dd>{metric?.available ? metricLabel(metric.status) : "Não avaliado"}<p>{metric?.feedback}</p></dd></div>)}</dl>
