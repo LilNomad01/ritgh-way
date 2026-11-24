@@ -1,6 +1,6 @@
 import { assertSupabase, getSupabase } from "../../../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../../../lib/auth";
-import { computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
+import { canAccessPractice, computeAcademicState, getNextLearningStep, type LessonAcademicState } from "../../../../lib/academic";
 import { assessAnswer } from "../../../../lib/exercise-answers";
 import { buildPracticePlan, parsePracticePlan, refreshPracticePlan, type PracticeExerciseSource } from "../../../../lib/practice-rotation";
 import { getWeakSkills, masteryReached, scorePercentage } from "../../../../lib/learning-progress";
@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ les
   if (!lesson) return Response.json({ error: "Prática inválida ou sem exercícios publicados." }, { status: 404 });
   const academic = await computeAcademicState(auth.sub);
   const lessonState = academic.lessonStates.find((state: LessonAcademicState) => state.lessonId === lessonId);
-  if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula antes de iniciar os exercícios." }, { status: 403 });
+  if (!canAccessPractice(lessonState)) return Response.json({ error: "Conclua o vídeo da aula antes de iniciar os exercícios." }, { status: 403 });
   const now = new Date().toISOString();
   const [exerciseResult, currentResult] = await Promise.all([
     db.from("lesson_exercises").select("id,type:exercise_type,category,title,prompt,optionsJson:options_json,correct:correct_answer,acceptedJson:accepted_answers_json,explanation,speech,audioKey:audio_key,skillsJson:skills_json,rotationVariantsJson:rotation_variants_json").eq("lesson_id", lessonId).eq("status", "Publicado").order("position").order("id"),

@@ -1,6 +1,6 @@
 import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { assertSameOrigin, requireAuth } from "../../lib/auth";
-import { computeAcademicState } from "../../lib/academic";
+import { canAccessPractice, computeAcademicState } from "../../lib/academic";
 import { evaluateAcoustics, evaluateSpeaking, speakingTarget, SpeechProcessingError, transcribeSpeech } from "../../lib/speech";
 import { parsePracticePlan } from "../../lib/practice-rotation";
 import { createHash } from "node:crypto";
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     if (!lesson) return Response.json({ error: "Este exercício não possui etapa de speaking." }, { status: 404 });
     const academic = await computeAcademicState(auth.sub);
     const lessonState = academic.lessonStates.find(item => item.lessonId === exercise.lessonId);
-    if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Esta prática ainda não está liberada." }, { status: 403 });
+    if (!canAccessPractice(lessonState)) return Response.json({ error: "Esta prática ainda não está liberada." }, { status: 403 });
     const session = assertSupabase(await db.from("practice_sessions").select("id,planJson:exercise_plan_json").eq("user_id", auth.sub).eq("lesson_id", exercise.lessonId).eq("status", "active").maybeSingle()) as { id: number; planJson: string } | null;
     if (!session) return Response.json({ error: "Inicie a prática antes de gravar." }, { status: 409 });
     const question = parsePracticePlan(session.planJson).find(item => item.id === exercise.id);

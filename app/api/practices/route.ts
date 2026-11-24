@@ -1,6 +1,6 @@
 import { assertSupabase, getSupabase } from "../../../db/supabase";
 import { requireAuth } from "../../lib/auth";
-import { computeAcademicState, type LessonAcademicState } from "../../lib/academic";
+import { canAccessPractice, computeAcademicState, type LessonAcademicState } from "../../lib/academic";
 import { practiceHistory } from "../../lib/practice-history";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
   const stateByLesson = new Map<number, LessonAcademicState>((academic.lessonStates as LessonAcademicState[]).map((state: LessonAcademicState) => [state.lessonId, state]));
   const practices = (practiceRows as PracticeRow[]).filter((row) => {
     const state = stateByLesson.get(row.id);
-    return Boolean(state?.unlocked && state.videoStatus === "completed");
+    return canAccessPractice(state);
   }).map((row) => {
     const slug = lessonSlug(row.title);
     const history = practiceHistory(attemptRows, row.id, slug);

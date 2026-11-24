@@ -5,6 +5,7 @@ export type LessonAcademicState = {
   lessonId: number;
   sectionId: number;
   ready: boolean;
+  hasVideo: boolean;
   reviewOnly: boolean;
   unlocked: boolean;
   completed: boolean;
@@ -143,7 +144,7 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
         const status: LessonAcademicState["status"] = completed ? "completed" : !ready || !unlocked ? "locked" : started ? "in_progress" : "available";
         const lastPercentage = attemptsCount ? scorePercentage(lessonAttempts[0].score, lessonAttempts[0].total) : undefined;
         const bestPercentage = attemptsCount ? Math.max(...lessonAttempts.map((attempt) => scorePercentage(attempt.score, attempt.total))) : undefined;
-        const state: LessonAcademicState = { lessonId: lesson.id, sectionId: section.id, ready, reviewOnly, unlocked, completed, videoStatus, videoPercent: videoStatus === "completed" ? 100 : Number(video?.progressPercent ?? 0), videoPosition: Number(video?.positionSeconds ?? 0), videoDuration: Number(video?.durationSeconds ?? 0), exerciseCount, exercisesCompleted, attemptsCount, lastPercentage, bestPercentage, masteryReached: masteryReached(bestPercentage), reviewRecommended: completed && exerciseCount > 0 && !masteryReached(bestPercentage), weakSkills: getWeakSkills(parseAnswerResults(lessonAttempts[0]?.answersJson)), status };
+        const state: LessonAcademicState = { lessonId: lesson.id, sectionId: section.id, ready, hasVideo, reviewOnly, unlocked, completed, videoStatus, videoPercent: videoStatus === "completed" ? 100 : Number(video?.progressPercent ?? 0), videoPosition: Number(video?.positionSeconds ?? 0), videoDuration: Number(video?.durationSeconds ?? 0), exerciseCount, exercisesCompleted, attemptsCount, lastPercentage, bestPercentage, masteryReached: masteryReached(bestPercentage), reviewRecommended: completed && exerciseCount > 0 && !masteryReached(bestPercentage), weakSkills: getWeakSkills(parseAnswerResults(lessonAttempts[0]?.answersJson)), status };
         lessonStates.push(state);
         currentLessonStates.push(state);
         previousLessonCompleted = reviewOnly || completed;
@@ -177,6 +178,12 @@ export async function computeAcademicState(userId: number): Promise<{ lessonStat
     if (!reviewOnly) previousModuleCompleted = completed;
   }
   return { lessonStates, sectionStates, moduleStates };
+}
+
+// Published exercises without an uploaded video are standalone practice.
+// Video-backed lessons retain the existing academic and video prerequisites.
+export function canAccessPractice(state: LessonAcademicState | undefined): boolean {
+  return Boolean(state && state.exerciseCount > 0 && (state.hasVideo === false || (state.unlocked && state.videoStatus === "completed")));
 }
 
 export { getNextLearningStep };

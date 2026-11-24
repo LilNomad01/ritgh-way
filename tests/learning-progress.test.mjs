@@ -206,3 +206,21 @@ test('skill aggregation reads new attempts safely and exam retries rotate questi
   assert.notEqual(first[0].id,second[0].id);
   assert.deepEqual(new Set(first.map(item => item.id)),new Set(second.map(item => item.id)));
 });
+
+
+test('published practice without a video is available independently of the journey', async () => {
+  const { sqlite, supabase } = database();
+  sqlite.exec(`INSERT INTO course_modules (id,title,level,position) VALUES(1,'Foundation','Básico',1);
+    INSERT INTO course_sections (id,module_id,title,position) VALUES(1,1,'Greetings',1);
+    INSERT INTO lessons(id,section_id,title,position) VALUES(1,1,'Practice only',1),(2,1,'Empty',2);
+    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,status) VALUES(1,'Greeting','Say hello','Hello','Publicado');
+    INSERT INTO lessons(id,section_id,title,video_key,position) VALUES(3,1,'Video lesson','lessons/3/video',3);
+    INSERT INTO lesson_exercises(lesson_id,title,prompt,correct_answer,status) VALUES(3,'Greeting','Say hello','Hello','Publicado');`);
+  const { computeAcademicState, canAccessPractice } = await load('app/lib/academic.ts', supabase);
+  const states = (await computeAcademicState(7)).lessonStates;
+  assert.equal(canAccessPractice(states.find(s => s.lessonId === 1)), true);
+  assert.equal(states.find(s => s.lessonId === 1).completed, false);
+  assert.equal(canAccessPractice(states.find(s => s.lessonId === 2)), false);
+  assert.equal(canAccessPractice(states.find(s => s.lessonId === 3)), false);
+  assert.equal(canAccessPractice(undefined), false);
+});

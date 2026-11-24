@@ -1,6 +1,6 @@
 import { assertSupabase, getSupabase } from "../../../../db/supabase";
 import { requireAuth } from "../../../lib/auth";
-import { computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
+import { canAccessPractice, computeAcademicState, type LessonAcademicState } from "../../../lib/academic";
 import { parsePracticePlan, parseStringList, refreshPracticePlan, type PracticeExerciseSource } from "../../../lib/practice-rotation";
 import type { SpeakingEvaluation } from "../../../lib/speech";
 import { practiceHistory } from "../../../lib/practice-history";
@@ -45,7 +45,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ less
   if (!section || !courseModule) return Response.json({ error: "Prática não encontrada." }, { status: 404 });
   const practice: PracticeRow = { ...lesson, level: courseModule.level, moduleTitle: courseModule.title, sectionTitle: section.title };
   const lessonState = (academic.lessonStates as LessonAcademicState[]).find((state: LessonAcademicState) => state.lessonId === lessonId);
-  if (!lessonState?.unlocked || lessonState.videoStatus !== "completed") return Response.json({ error: "Conclua o vídeo da aula para liberar esta prática." }, { status: 403 });
+  if (!canAccessPractice(lessonState)) return Response.json({ error: "Conclua o vídeo da aula para liberar esta prática." }, { status: 403 });
   const typedExercises = (assertSupabase(exerciseResult) ?? []) as ExerciseRow[];
   const slug = lessonSlug(practice.title);
   const history = practiceHistory((assertSupabase(attemptResult) ?? []) as { lessonId?: number; lessonSlug: string; score: number; total: number }[], lessonId, slug);
